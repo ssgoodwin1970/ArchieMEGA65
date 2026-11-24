@@ -11,6 +11,12 @@
 ## Important: Using them in subsequent statements, e.g. clock dividers requires that they
 ## have been named/defined here before
 ## otherwise Vivado does not find the pins)
-create_generated_clock -name main_clk      [get_pins CORE/clk_gen/i_clk_main/CLKOUT0]
+create_generated_clock -name main_clk      [get_pins CORE/clk_gen/i_clk_main/CLKOUT1]
+create_generated_clock -name video_clk     [get_pins CORE/clk_gen/i_clk_main/CLKOUT0]
+
+## Archimedes: the 42 MHz system clock and the 96 MHz video clock come from the same MMCM, but the
+## core treats them as unrelated (as Archie.sdc does for the MiSTer video PLL): all crossings use
+## synchronisers or async FIFOs (vidc_async_fifo, vidc_command_fifo, archie_main.v syncs).
+set_clock_groups -asynchronous -group [get_clocks main_clk] -group [get_clocks video_clk]
 # Add more clocks here, if needed
 
