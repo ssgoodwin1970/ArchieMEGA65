@@ -48,3 +48,27 @@ Everything else (Amber CPU, MEMC, IOC, VIDC, FDC 1772, IDE) is plain Verilog/Sys
 /archie/cmos.dat
 /archie/*.adf
 ```
+
+## Design decisions
+
+### Clocks (done: `CORE/vhdl/clk.vhd`)
+One MMCM, 100 MHz in, 1050 MHz VCO:
+- 42 MHz system clock (`CLKOUT1`, /25), exactly the MiSTer `CLKSYS`.
+- 96 MHz video clock (`CLKOUT0`, /10.9375).
+
+The MiSTer core changes its video PLL per VIDC mode (24 / 25.175 / 36 MHz families, 96 MHz for mode 23).
+Instead we run one fixed 96 MHz video clock and make each pixel rate with fractional clock
+enables. Archie_MiSTer already has this logic (`cepix_60` / `vratio` in `Archie.sv`), so no
+live PLL reconfiguration is needed. The M2M scaler (ascal) samples on the clock enable, so
+the small pixel jitter does not matter on HDMI.
+
+### Memory budget (MEGA65 R3: 8 MB HyperRAM, no SDRAM)
+The MiSTer core uses RAM at 0-4 MB and loads the RISC OS ROM at 4 MB (up to 2 MB), 6 MB in all.
+M2M reserves the first 4 MB of HyperRAM for its video scaler buffer (`C_HMAP_M2M`).
+
+First version: **2 MB Archimedes RAM + 2 MB ROM** in the core's 4 MB window (A3000-class,
+enough for RISC OS 3 and most games). RAM addresses above 2 MB alias, which is how real
+machines with less RAM behave.
+
+Later: if the scaler fits in 2 MB (input resolution up to 800x600, i.e. no mode 23 hi-res mono),
+the core window grows to 6 MB and we go to the full 4 MB of RAM.
