@@ -23,3 +23,4 @@ M2M/rom/*.rom
 M2M/video_filters/*.out
 tools/.bit2core/
 *.cor
+tools/.bit2core-dev/
