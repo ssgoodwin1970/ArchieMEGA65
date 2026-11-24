@@ -106,3 +106,7 @@ Second test: no change, noise flickers fast every frame -> latency, not bandwidt
 64-byte line was still a full HyperRAM round trip on the critical path while VIDC's FIFO only
 holds 8 words (~1.3 us of pixels in the desktop mode). Fix: 8-line cache, next-line prefetch on
 every read, writes invalidate (single-write-port LUTRAM).
+Third test (video frames analysed): noise is made of desktop colours and changes per frame ->
+VIDC FIFO underruns. Real cause: MEMC never interrupts a CPU access for DMA, and CPU cache
+misses to HyperRAM take >1 us, longer than the 8-word VIDC FIFO lasts. Fix: video DMA FIFO
+raised to 64 words (`vidc.v`, mega65 branch of the core).
