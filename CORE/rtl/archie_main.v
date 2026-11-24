@@ -125,7 +125,6 @@ wire        i2c_din, i2c_dout, i2c_clock;
 reg         ce_pix;
 reg         ce_vid;
 reg         ce_aud;
-reg         got4 = 0;
 
 archimedes_top #(42000000) ARCHIMEDES
 (
@@ -372,39 +371,69 @@ always @(posedge clk_sys) begin
 end
 
 ///////////////////////////////////////////////////////////////////////////////
-// Wishbone -> Avalon bridge (behaves like Archie_MiSTer sdram.v)
+// Wishbone -> Avalon bridge with a small read cache
+//
+// Behaves towards the core like Archie_MiSTer sdram.v: every read returns up to
+// 4 words (wrap-around inside the aligned 16 byte block) on consecutive clocks
+// while the master holds STB.
+//
+// HyperRAM is much slower to answer than the MiSTer SDRAM, and video DMA reads
+// the screen as a continuous stream of 16 byte requests. To keep VIDC fed, reads
+// are served from a 4-line cache of 64 byte lines (16 words, one HyperRAM burst
+// per line). Writes go straight through to HyperRAM and also update a cached
+// line, so the cache is always coherent (this bridge is the only writer).
 ///////////////////////////////////////////////////////////////////////////////
 
 // 2 MB RAM (addresses above alias) and 2 MB ROM (core address bit 22)
 wire [19:0] core_waddr = {core_address_out[22], core_address_out[20:2]};
+wire [15:0] core_line  = core_waddr[19:4];
 
 localparam ST_IDLE  = 3'd0;
 localparam ST_WRITE = 3'd1;
-localparam ST_READ  = 3'd2;
+localparam ST_FILL  = 3'd2;
 localparam ST_ACK   = 3'd3;
 localparam ST_ROM   = 3'd4;
+localparam ST_HIT   = 3'd5;
 
 reg  [2:0] state = ST_IDLE;
-reg [31:0] rbuf [0:3];
-reg  [1:0] rcnt;      // number of read words received
-reg  [1:0] ridx;      // index of the next word to hand to the core
-reg  [1:0] acks;      // acks given in this cycle (wraps after 4)
+
+reg [31:0] cdata [0:63];           // {way[1:0], word[3:0]}
+reg [15:0] ctag  [0:3];
+reg  [3:0] cvalid = 4'b0000;
+reg  [1:0] victim = 2'd0;
+
+reg  [1:0] cway;                   // way being read / filled
+reg  [3:0] cword;                  // next word to hand to the core
+reg  [3:0] fcnt;                   // words received during a fill
+reg  [1:0] acks;                   // acks given in this cycle (wraps after 4)
 reg        wb_ack = 0;
 
 assign core_ack_in = wb_ack;
 
+// hit detection (combinational on the current request)
+wire [3:0] hit_vec;
+genvar gw;
+generate for (gw = 0; gw < 4; gw = gw + 1) begin : g_hit
+   assign hit_vec[gw] = cvalid[gw] && (ctag[gw] == core_line);
+end endgenerate
+wire       hit     = |hit_vec;
+wire [1:0] hit_way = hit_vec[3] ? 2'd3 : hit_vec[2] ? 2'd2 : hit_vec[1] ? 2'd1 : 2'd0;
+
+integer b;
 always @(posedge clk_sys) begin
    wb_ack   <= 1'b0;
    rom_done <= 1'b0;
 
-   if (avm_readdatavalid_i) begin
-      rbuf[rcnt] <= avm_readdata_i;
-      rcnt       <= rcnt + 1'd1;
+   // line fill from HyperRAM
+   if (state == ST_FILL && avm_readdatavalid_i) begin
+      cdata[{cway, fcnt}] <= avm_readdata_i;
+      fcnt                <= fcnt + 1'd1;
    end
 
    case (state)
       ST_IDLE: begin
          if (rom_pending & ~rom_done) begin
+            cvalid           <= 4'b0000;           // ROM download: drop the cache
             avm_write_o      <= 1'b1;
             avm_read_o       <= 1'b0;
             avm_address_o    <= {1'b1, rom_waddr};
@@ -413,21 +442,33 @@ always @(posedge clk_sys) begin
             avm_burstcount_o <= 8'd1;
             state            <= ST_ROM;
          end else if (core_stb_out & core_cyc_out & ~core_reset) begin
-            avm_byteenable_o <= core_sel_o;
-            avm_writedata_o  <= core_data_out;
             if (core_we_o) begin
+               // write through; keep a cached copy up to date
+               if (hit)
+                  for (b = 0; b < 4; b = b + 1)
+                     if (core_sel_o[b]) cdata[{hit_way, core_waddr[3:0]}][b*8 +: 8] <= core_data_out[b*8 +: 8];
                avm_write_o      <= 1'b1;
                avm_address_o    <= core_waddr;
+               avm_writedata_o  <= core_data_out;
+               avm_byteenable_o <= core_sel_o;
                avm_burstcount_o <= 8'd1;
                state            <= ST_WRITE;
+            end else if (hit) begin
+               cway  <= hit_way;
+               cword <= core_waddr[3:0];
+               state <= ST_HIT;
             end else begin
+               cway             <= victim;
+               cword            <= core_waddr[3:0];
+               fcnt             <= 4'd0;
+               cvalid[victim]   <= 1'b0;
+               ctag[victim]     <= core_line;
+               victim           <= victim + 1'd1;
                avm_read_o       <= 1'b1;
-               avm_address_o    <= {core_waddr[19:2], 2'b00};
+               avm_address_o    <= {core_line, 4'b0000};
                avm_byteenable_o <= 4'b1111;
-               avm_burstcount_o <= 8'd4;
-               ridx             <= core_waddr[1:0];
-               rcnt             <= 2'd0;
-               state            <= ST_READ;
+               avm_burstcount_o <= 8'd16;
+               state            <= ST_FILL;
             end
          end
       end
@@ -445,23 +486,28 @@ always @(posedge clk_sys) begin
          state       <= ST_ACK;
       end
 
-      ST_READ: begin
+      ST_FILL: begin
          if (~avm_waitrequest_i) avm_read_o <= 1'b0;
-         // all four words in: hand the requested one to the core
-         if (got4) begin
-            core_data_in <= rbuf[ridx];
-            ridx         <= ridx + 1'd1;
-            wb_ack       <= 1'b1;
-            acks         <= 2'd1;
-            state        <= ST_ACK;
+         if (avm_readdatavalid_i && fcnt == 4'd15) begin
+            cvalid[cway] <= 1'b1;
+            state        <= ST_HIT;
          end
       end
 
-      // Keep acking (up to 4 in total) while the master holds STB, as sdram.v does
+      // first word of a read (cache hit or line just filled)
+      ST_HIT: begin
+         core_data_in <= cdata[{cway, cword}];
+         cword        <= {cword[3:2], cword[1:0] + 2'd1};
+         wb_ack       <= 1'b1;
+         acks         <= 2'd1;
+         state        <= ST_ACK;
+      end
+
+      // keep acking (up to 4 in total) while the master holds STB, as sdram.v does
       ST_ACK: begin
          if (core_stb_out & core_cyc_out & acks != 2'd0) begin
-            core_data_in <= rbuf[ridx];
-            ridx         <= ridx + 1'd1;
+            core_data_in <= cdata[{cway, cword}];
+            cword        <= {cword[3:2], cword[1:0] + 2'd1};
             wb_ack       <= 1'b1;
             acks         <= acks + 1'd1;
          end else
@@ -470,12 +516,6 @@ always @(posedge clk_sys) begin
 
       default: state <= ST_IDLE;
    endcase
-end
-
-// got4: set when the 4th read word of the current burst has arrived
-always @(posedge clk_sys) begin
-   if (state == ST_IDLE) got4 <= 1'b0;
-   else if (state == ST_READ && avm_readdatavalid_i && rcnt == 2'd3) got4 <= 1'b1;
 end
 
 endmodule

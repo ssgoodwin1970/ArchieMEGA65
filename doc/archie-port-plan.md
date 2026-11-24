@@ -96,3 +96,9 @@ Known follow-ups:
 Core changes (kept on branch `mega65` of ssgoodwin1970/Archie_MiSTer):
 - `rtl/fdc/fdc1772.sv`: `fdc1772_dpram` rewritten as a 16-bit true dual port RAM with byte
   write on port B. The mixed-width original became 8192 multiply-driven flip-flops in Vivado.
+
+### First hardware test (R3)
+RISC OS boots (mouse pointer drawn correctly), but the screen image is mostly noise with the
+desktop faintly visible. Likely cause: HyperRAM round trips too slow for continuous video DMA.
+Fix: 4-line x 64-byte read cache in the bridge (write-through, coherent), one 16-word HyperRAM
+burst per line.
