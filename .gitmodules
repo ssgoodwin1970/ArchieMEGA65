@@ -4,3 +4,4 @@
 [submodule "CORE/Archie_MiSTer"]
 	path = CORE/Archie_MiSTer
 	url = https://github.com/ssgoodwin1970/Archie_MiSTer.git
+	branch = mega65

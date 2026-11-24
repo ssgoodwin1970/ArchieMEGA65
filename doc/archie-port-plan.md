@@ -92,3 +92,7 @@ the core window grows to 6 MB and we go to the full 4 MB of RAM.
 Known follow-ups:
 - `podule_ide.sv` loads `rtl/riscdevide_rom.hex` with a Quartus-relative path (IDE ROM; phase 6).
 - `fdc1772.sv` has `always begin` with no event list; fine in Quartus, check Vivado's view.
+
+Core changes (kept on branch `mega65` of ssgoodwin1970/Archie_MiSTer):
+- `rtl/fdc/fdc1772.sv`: `fdc1772_dpram` rewritten as a 16-bit true dual port RAM with byte
+  write on port B. The mixed-width original became 8192 multiply-driven flip-flops in Vivado.
