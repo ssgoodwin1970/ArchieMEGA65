@@ -642,127 +642,127 @@
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/amber/a23_config_defines.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="IsGlobalInclude" Val="1"/>
           <Attr Name="UsedIn" Val="synthesis"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/amber/a23_barrel_shift.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/amber/a23_wishbone.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/amber/a23_register_bank.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/amber/a23_multiply.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/amber/a23_fetch.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/amber/a23_execute.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/amber/a23_decode.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/amber/a23_coprocessor.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/amber/a23_cache.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/amber/a23_alu.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/amber/a23_core.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/vidc/vidc_dmachannel.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/vidc/vidc_fifo.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/vidc/vidc_async_fifo.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/vidc/vidc_command_fifo.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/vidc/vidc_timing.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/vidc/mode23_cursor_serializer.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/vidc/vidc_audio.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/vidc/vidc.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/fdc/floppy.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
@@ -786,55 +786,55 @@
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/ide.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/latches.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/ioc_irq.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/ioc.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/memc_translator.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/memc.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/Archie_MiSTer/rtl/archimedes_top.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/rtl/xilinx_rams.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
       <File Path="$PPRDIR/rtl/archie_main.v">
-        <FileInfo>
+        <FileInfo SFType="SVerilog">
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
