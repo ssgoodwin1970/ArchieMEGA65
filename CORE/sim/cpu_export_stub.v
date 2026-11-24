@@ -1,0 +1,1 @@
+module cpu_export(input clk, input rst, input new_export, input [31:0] R0,R1,R2,R3,R4,R5,R6,R7,R8,R9,R10,R11,R12,R13,R14,R15, input [31:0] R8_fiq,R9_fiq,R10_fiq,R11_fiq,R12_fiq,R13_fiq,R14_fiq,R13_irq,R14_irq,R13_svc,R14_svc, input [31:0] PC, input [1:0] mode, input [31:0] irq, input [31:0] fiq, input [31:0] opcode, input [31:0] cpsr); endmodule

@@ -229,6 +229,43 @@ signal main_rst               : std_logic;
 signal archie_video_clk       : std_logic;               -- Archimedes 96 MHz video clock
 signal archie_video_rst       : std_logic;
 
+-- RISC OS ROM loader (QNICE device C_DEV_ARCHIE_ROM -> main clock domain)
+signal qnice_rom_cs           : std_logic;
+signal qnice_rom_wait         : std_logic;
+signal qnice_rom_avm_write    : std_logic;
+signal qnice_rom_avm_address  : std_logic_vector(31 downto 0);
+signal qnice_rom_avm_wdata    : std_logic_vector(15 downto 0);
+signal qnice_rom_avm_wait     : std_logic;
+signal main_rom_fifo_write    : std_logic;
+signal main_rom_fifo_address  : std_logic_vector(31 downto 0);
+signal main_rom_fifo_wdata    : std_logic_vector(15 downto 0);
+signal main_rom_busy          : std_logic;
+signal main_rom_wr            : std_logic;
+
+-- Archimedes memory: 32-bit Avalon in main clock domain -> HyperRAM
+signal main_avm_write         : std_logic;
+signal main_avm_read          : std_logic;
+signal main_avm_address       : std_logic_vector(19 downto 0);
+signal main_avm_writedata     : std_logic_vector(31 downto 0);
+signal main_avm_byteenable    : std_logic_vector(3 downto 0);
+signal main_avm_burstcount    : std_logic_vector(7 downto 0);
+signal main_avm_readdata      : std_logic_vector(31 downto 0);
+signal main_avm_readdatavalid : std_logic;
+signal main_avm_waitrequest   : std_logic;
+
+signal hr_avm_write           : std_logic;
+signal hr_avm_read            : std_logic;
+signal hr_avm_address         : std_logic_vector(19 downto 0);
+signal hr_avm_writedata       : std_logic_vector(31 downto 0);
+signal hr_avm_byteenable      : std_logic_vector(3 downto 0);
+signal hr_avm_burstcount      : std_logic_vector(7 downto 0);
+signal hr_avm_readdata        : std_logic_vector(31 downto 0);
+signal hr_avm_readdatavalid   : std_logic;
+signal hr_avm_waitrequest     : std_logic;
+signal hr_core_address16      : std_logic_vector(20 downto 0);
+
+signal main_drive_led         : std_logic;
+
 ---------------------------------------------------------------------------------------------
 -- main_clk (MiSTer core's clock)
 ---------------------------------------------------------------------------------------------
@@ -260,12 +297,6 @@ signal qnice_demo_vd_we       : std_logic;
 
 begin
 
-   hr_core_write_o      <= '0';
-   hr_core_read_o       <= '0';
-   hr_core_address_o    <= (others => '0');
-   hr_core_writedata_o  <= (others => '0');
-   hr_core_byteenable_o <= (others => '0');
-   hr_core_burstcount_o <= (others => '0');
 
    -- Tristate all expansion port drivers that we can directly control
    -- @TODO: As soon as we support modules that can act as busmaster, we need to become more flexible here
@@ -326,8 +357,8 @@ begin
 
    main_clk_o  <= main_clk;
    main_rst_o  <= main_rst;
-   video_clk_o <= main_clk;
-   video_rst_o <= main_rst;
+   video_clk_o <= archie_video_clk;
+   video_rst_o <= archie_video_rst;
 
    ---------------------------------------------------------------------------------------------
    -- main_clk (MiSTer core's clock)
@@ -350,6 +381,8 @@ begin
          pause_i              => main_pause_core_i,
 
          clk_main_speed_i     => CORE_CLK_SPEED,
+
+         clk_video_i          => archie_video_clk,
 
          -- Video output
          -- This is PAL 720x576 @ 50 Hz (pixel clock 27 MHz), but synchronized to main_clk (54 MHz).
@@ -387,8 +420,97 @@ begin
          pot1_x_i             => main_pot1_x_i,
          pot1_y_i             => main_pot1_y_i,
          pot2_x_i             => main_pot2_x_i,
-         pot2_y_i             => main_pot2_y_i
+         pot2_y_i             => main_pot2_y_i,
+
+         rom_wr_i             => main_rom_wr,
+         rom_addr_i           => main_rom_fifo_address(20 downto 0),
+         rom_data_i           => main_rom_fifo_wdata(7 downto 0),
+         rom_busy_o           => main_rom_busy,
+
+         avm_write_o          => main_avm_write,
+         avm_read_o           => main_avm_read,
+         avm_address_o        => main_avm_address,
+         avm_writedata_o      => main_avm_writedata,
+         avm_byteenable_o     => main_avm_byteenable,
+         avm_burstcount_o     => main_avm_burstcount,
+         avm_readdata_i       => main_avm_readdata,
+         avm_readdatavalid_i  => main_avm_readdatavalid,
+         avm_waitrequest_i    => main_avm_waitrequest,
+
+         drive_led_o          => main_drive_led
       ); -- i_main
+
+   ---------------------------------------------------------------------------------------------
+   -- Archimedes memory: main clock domain (42 MHz, 32 bit) -> HyperRAM (100 MHz, 16 bit)
+   -- The core owns a 4 MB window of HyperRAM starting at C_HMAP_ARCHIE (4 MB):
+   --    0..2 MB: Archimedes RAM, 2..4 MB: RISC OS ROM
+   ---------------------------------------------------------------------------------------------
+
+   i_avm_fifo_archie : entity work.avm_fifo
+      generic map (
+         G_WR_DEPTH     => 16,
+         G_RD_DEPTH     => 16,
+         G_FILL_SIZE    => 1,
+         G_ADDRESS_SIZE => 20,
+         G_DATA_SIZE    => 32
+      )
+      port map (
+         s_clk_i               => main_clk,
+         s_rst_i               => main_rst,
+         s_avm_waitrequest_o   => main_avm_waitrequest,
+         s_avm_write_i         => main_avm_write,
+         s_avm_read_i          => main_avm_read,
+         s_avm_address_i       => main_avm_address,
+         s_avm_writedata_i     => main_avm_writedata,
+         s_avm_byteenable_i    => main_avm_byteenable,
+         s_avm_burstcount_i    => main_avm_burstcount,
+         s_avm_readdata_o      => main_avm_readdata,
+         s_avm_readdatavalid_o => main_avm_readdatavalid,
+         m_clk_i               => hr_clk_i,
+         m_rst_i               => hr_rst_i,
+         m_avm_waitrequest_i   => hr_avm_waitrequest,
+         m_avm_write_o         => hr_avm_write,
+         m_avm_read_o          => hr_avm_read,
+         m_avm_address_o       => hr_avm_address,
+         m_avm_writedata_o     => hr_avm_writedata,
+         m_avm_byteenable_o    => hr_avm_byteenable,
+         m_avm_burstcount_o    => hr_avm_burstcount,
+         m_avm_readdata_i      => hr_avm_readdata,
+         m_avm_readdatavalid_i => hr_avm_readdatavalid
+      ); -- i_avm_fifo_archie
+
+   i_avm_decrease_archie : entity work.avm_decrease
+      generic map (
+         G_SLAVE_ADDRESS_SIZE  => 20,
+         G_SLAVE_DATA_SIZE     => 32,
+         G_MASTER_ADDRESS_SIZE => 21,
+         G_MASTER_DATA_SIZE    => 16
+      )
+      port map (
+         clk_i                 => hr_clk_i,
+         rst_i                 => hr_rst_i,
+         s_avm_write_i         => hr_avm_write,
+         s_avm_read_i          => hr_avm_read,
+         s_avm_address_i       => hr_avm_address,
+         s_avm_writedata_i     => hr_avm_writedata,
+         s_avm_byteenable_i    => hr_avm_byteenable,
+         s_avm_burstcount_i    => hr_avm_burstcount,
+         s_avm_readdata_o      => hr_avm_readdata,
+         s_avm_readdatavalid_o => hr_avm_readdatavalid,
+         s_avm_waitrequest_o   => hr_avm_waitrequest,
+         m_avm_write_o         => hr_core_write_o,
+         m_avm_read_o          => hr_core_read_o,
+         m_avm_address_o       => hr_core_address16,
+         m_avm_writedata_o     => hr_core_writedata_o,
+         m_avm_byteenable_o    => hr_core_byteenable_o,
+         m_avm_burstcount_o    => hr_core_burstcount_o,
+         m_avm_readdata_i      => hr_core_readdata_i,
+         m_avm_readdatavalid_i => hr_core_readdatavalid_i,
+         m_avm_waitrequest_i   => hr_core_waitrequest_i
+      ); -- i_avm_decrease_archie
+
+   -- HyperRAM address is in 16-bit words; C_HMAP_ARCHIE is in units of 4k words
+   hr_core_address_o <= std_logic_vector(unsigned(x"0" & C_HMAP_ARCHIE & x"000") + unsigned("00000000000" & hr_core_address16));
 
    ---------------------------------------------------------------------------------------------
    -- Audio and video settings (QNICE clock domain)
@@ -467,12 +589,81 @@ begin
             qnice_demo_vd_we     <= qnice_dev_we_i;
             qnice_dev_data_o     <= qnice_demo_vd_data_o;
 
-         -- @TODO YOUR RAMs or ROMs (e.g. for cartridges) or other devices here
-         -- Device numbers need to be >= 0x0100
+         -- RISC OS ROM loader: write-only byte stream (see i_qnice2rom below)
+         when C_DEV_ARCHIE_ROM =>
+            qnice_dev_wait_o     <= qnice_rom_wait;
 
          when others => null;
       end case;
    end process core_specific_devices;
+
+   ---------------------------------------------------------------------------------------------
+   -- RISC OS ROM loader: QNICE writes the ROM file byte by byte into device C_DEV_ARCHIE_ROM
+   -- (one byte per QNICE word, byte address = 4k window * 4096 + offset). The bytes cross into
+   -- the main clock domain through an Avalon FIFO and archie_main.v packs them into 32-bit words.
+   -- Window 0xFFFF is the framework's control/status register area and is ignored.
+   ---------------------------------------------------------------------------------------------
+
+   qnice_rom_cs <= '1' when qnice_dev_id_i = C_DEV_ARCHIE_ROM and qnice_dev_ce_i = '1' and qnice_dev_we_i = '1'
+                            and qnice_dev_addr_i(27 downto 12) /= x"FFFF"
+                   else '0';
+
+   i_qnice2rom : entity work.qnice2hyperram
+      port map (
+         clk_i                 => qnice_clk_i,
+         rst_i                 => qnice_rst_i,
+         s_qnice_wait_o        => qnice_rom_wait,
+         s_qnice_address_i     => x"0" & qnice_dev_addr_i,
+         s_qnice_cs_i          => qnice_rom_cs,
+         s_qnice_write_i       => '1',
+         s_qnice_writedata_i   => qnice_dev_data_i,
+         s_qnice_byteenable_i  => "11",
+         s_qnice_readdata_o    => open,
+         m_avm_write_o         => qnice_rom_avm_write,
+         m_avm_read_o          => open,
+         m_avm_address_o       => qnice_rom_avm_address,
+         m_avm_writedata_o     => qnice_rom_avm_wdata,
+         m_avm_byteenable_o    => open,
+         m_avm_burstcount_o    => open,
+         m_avm_readdata_i      => (others => '0'),
+         m_avm_readdatavalid_i => '0',
+         m_avm_waitrequest_i   => qnice_rom_avm_wait
+      ); -- i_qnice2rom
+
+   i_avm_fifo_rom : entity work.avm_fifo
+      generic map (
+         G_WR_DEPTH     => 16,
+         G_RD_DEPTH     => 16,
+         G_FILL_SIZE    => 1,
+         G_ADDRESS_SIZE => 32,
+         G_DATA_SIZE    => 16
+      )
+      port map (
+         s_clk_i               => qnice_clk_i,
+         s_rst_i               => qnice_rst_i,
+         s_avm_waitrequest_o   => qnice_rom_avm_wait,
+         s_avm_write_i         => qnice_rom_avm_write,
+         s_avm_read_i          => '0',
+         s_avm_address_i       => qnice_rom_avm_address,
+         s_avm_writedata_i     => qnice_rom_avm_wdata,
+         s_avm_byteenable_i    => "11",
+         s_avm_burstcount_i    => x"01",
+         s_avm_readdata_o      => open,
+         s_avm_readdatavalid_o => open,
+         m_clk_i               => main_clk,
+         m_rst_i               => main_rst,
+         m_avm_waitrequest_i   => main_rom_busy,
+         m_avm_write_o         => main_rom_fifo_write,
+         m_avm_read_o          => open,
+         m_avm_address_o       => main_rom_fifo_address,
+         m_avm_writedata_o     => main_rom_fifo_wdata,
+         m_avm_byteenable_o    => open,
+         m_avm_burstcount_o    => open,
+         m_avm_readdata_i      => (others => '0'),
+         m_avm_readdatavalid_i => '0'
+      ); -- i_avm_fifo_rom
+
+   main_rom_wr <= main_rom_fifo_write and not main_rom_busy;
 
    ---------------------------------------------------------------------------------------------
    -- Dual Clocks
@@ -498,7 +689,7 @@ begin
    -- a) In case that this is handled in main.vhd, you need to add the appropriate ports to i_main
    -- b) You might want to change the drive led's color (just like the C64 core does) as long as
    --    the cache is dirty (i.e. as long as the write process is not finished, yet)
-   main_drive_led_o     <= '0';
+   main_drive_led_o     <= main_drive_led;
    main_drive_led_col_o <= x"00FF00";  -- 24-bit RGB value for the led
 
    i_vdrives : entity work.vdrives

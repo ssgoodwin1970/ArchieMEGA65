@@ -75,7 +75,7 @@ constant VRAM_ADDR_WIDTH      : natural := f_log2(CHAR_MEM_SIZE);
 ----------------------------------------------------------------------------------------------------------
 
 constant C_HMAP_M2M           : std_logic_vector(15 downto 0) := x"0000";     -- Reserved for the M2M framework
-constant C_HMAP_DEMO          : std_logic_vector(15 downto 0) := x"0200";     -- Start address reserved for core
+constant C_HMAP_ARCHIE        : std_logic_vector(15 downto 0) := x"0200";     -- Archimedes: 4 MB window (2 MB RAM + 2 MB ROM)
 
 ----------------------------------------------------------------------------------------------------------
 -- Virtual Drive Management System
@@ -83,6 +83,7 @@ constant C_HMAP_DEMO          : std_logic_vector(15 downto 0) := x"0200";     --
 
 -- example virtual drive handler, which is connected to nothing and only here to demo
 -- the file- and directory browsing capabilities of the firmware
+constant C_DEV_ARCHIE_ROM     : std_logic_vector(15 downto 0) := x"0100";     -- RISC OS ROM loader (write-only byte stream)
 constant C_DEV_DEMO_VD        : std_logic_vector(15 downto 0) := x"0101";
 constant C_DEV_DEMO_NOBUFFER  : std_logic_vector(15 downto 0) := x"AAAA";
 
@@ -152,9 +153,10 @@ constant C_CRTROMS_MAN           : crtrom_buf_array := ( x"EEEE", x"EEEE",
 --               c) Don't forget to finish the C_CRTROMS_AUTO array with x"EEEE"
 
 -- M2M framework constants
-constant C_CRTROMS_AUTO_NUM      : natural := 0;                                       -- Amount of automatically loadable ROMs and carts, maximum is 16
-constant C_CRTROMS_AUTO_NAMES    : string  := "" & ENDSTR;
-constant C_CRTROMS_AUTO          : crtrom_buf_array := ( x"EEEE", x"EEEE", x"EEEE", x"EEEE",
+-- RISC OS ROM: /archie/riscos.rom on the SD card (the user's own ROM, up to 2 MB)
+constant C_CRTROMS_AUTO_NUM      : natural := 1;                                       -- Amount of automatically loadable ROMs and carts, maximum is 16
+constant C_CRTROMS_AUTO_NAMES    : string  := "/archie/riscos.rom" & ENDSTR;
+constant C_CRTROMS_AUTO          : crtrom_buf_array := ( C_CRTROMTYPE_DEVICE, C_DEV_ARCHIE_ROM, C_CRTROMTYPE_MANDATORY, x"0000",
                                                          x"EEEE");                     -- Always finish the array using x"EEEE"
 
 ----------------------------------------------------------------------------------------------------------

@@ -18,7 +18,7 @@ entity main is
       G_VDNUM                 : natural                     -- amount of virtual drives
    );
    port (
-      clk_main_i              : in  std_logic;
+      clk_main_i              : in  std_logic;              -- 42 MHz Archimedes system clock
       reset_soft_i            : in  std_logic;
       reset_hard_i            : in  std_logic;
       pause_i                 : in  std_logic;
@@ -26,6 +26,9 @@ entity main is
       -- MiSTer core main clock speed:
       -- Make sure you pass very exact numbers here, because they are used for avoiding clock drift at derived clocks
       clk_main_speed_i        : in  natural;
+
+      -- Video clock (96 MHz): all video_* outputs are in this clock domain
+      clk_video_i             : in  std_logic;
 
       -- Video output
       video_ce_o              : out std_logic;
@@ -62,81 +65,119 @@ entity main is
       pot1_x_i                : in  std_logic_vector(7 downto 0);
       pot1_y_i                : in  std_logic_vector(7 downto 0);
       pot2_x_i                : in  std_logic_vector(7 downto 0);
-      pot2_y_i                : in  std_logic_vector(7 downto 0)
+      pot2_y_i                : in  std_logic_vector(7 downto 0);
+
+      -- RISC OS ROM loader byte stream (main clock domain)
+      rom_wr_i                : in  std_logic;
+      rom_addr_i              : in  std_logic_vector(20 downto 0);
+      rom_data_i              : in  std_logic_vector(7 downto 0);
+      rom_busy_o              : out std_logic;
+
+      -- Memory: 32-bit Avalon master (main clock domain), 1M words = 4 MB
+      avm_write_o             : out std_logic;
+      avm_read_o              : out std_logic;
+      avm_address_o           : out std_logic_vector(19 downto 0);
+      avm_writedata_o         : out std_logic_vector(31 downto 0);
+      avm_byteenable_o        : out std_logic_vector(3 downto 0);
+      avm_burstcount_o        : out std_logic_vector(7 downto 0);
+      avm_readdata_i          : in  std_logic_vector(31 downto 0);
+      avm_readdatavalid_i     : in  std_logic;
+      avm_waitrequest_i       : in  std_logic;
+
+      drive_led_o             : out std_logic
    );
 end entity main;
 
 architecture synthesis of main is
 
--- @TODO: Remove these demo core signals
-signal keyboard_n          : std_logic_vector(79 downto 0);
+component archie_main is
+   port (
+      clk_sys              : in  std_logic;
+      clk_vid              : in  std_logic;
+      reset_i              : in  std_logic;
+      rom_loading_i        : in  std_logic;
+      rom_wr_i             : in  std_logic;
+      rom_addr_i           : in  std_logic_vector(20 downto 0);
+      rom_data_i           : in  std_logic_vector(7 downto 0);
+      rom_busy_o           : out std_logic;
+      avm_write_o          : out std_logic;
+      avm_read_o           : out std_logic;
+      avm_address_o        : out std_logic_vector(19 downto 0);
+      avm_writedata_o      : out std_logic_vector(31 downto 0);
+      avm_byteenable_o     : out std_logic_vector(3 downto 0);
+      avm_burstcount_o     : out std_logic_vector(7 downto 0);
+      avm_readdata_i       : in  std_logic_vector(31 downto 0);
+      avm_readdatavalid_i  : in  std_logic;
+      avm_waitrequest_i    : in  std_logic;
+      video_ce_o           : out std_logic;
+      video_r_o            : out std_logic_vector(7 downto 0);
+      video_g_o            : out std_logic_vector(7 downto 0);
+      video_b_o            : out std_logic_vector(7 downto 0);
+      video_hs_o           : out std_logic;
+      video_vs_o           : out std_logic;
+      video_hblank_o       : out std_logic;
+      video_vblank_o       : out std_logic;
+      audio_l_o            : out std_logic_vector(15 downto 0);
+      audio_r_o            : out std_logic_vector(15 downto 0);
+      joy0_n_i             : in  std_logic_vector(4 downto 0);
+      joy1_n_i             : in  std_logic_vector(4 downto 0);
+      fdd_led_o            : out std_logic;
+      hdd_led_o            : out std_logic
+   );
+end component archie_main;
+
+signal audio_l    : std_logic_vector(15 downto 0);
+signal audio_r    : std_logic_vector(15 downto 0);
+signal video_ce   : std_logic;
+signal fdd_led    : std_logic;
+signal hdd_led    : std_logic;
 
 begin
 
-   -- @TODO: Add the actual MiSTer core here
-   -- The demo core's purpose is to show a test image and to make sure, that the MiSTer2MEGA65 framework
-   -- can be synthesized and run stand-alone without an actual MiSTer core being there, yet
-   i_democore : entity work.democore
+   i_archie : archie_main
       port map (
-         clk_main_i           => clk_main_i,
+         clk_sys              => clk_main_i,
+         clk_vid              => clk_video_i,
+         reset_i              => reset_soft_i or reset_hard_i,
+         rom_loading_i        => '0',
+         rom_wr_i             => rom_wr_i,
+         rom_addr_i           => rom_addr_i,
+         rom_data_i           => rom_data_i,
+         rom_busy_o           => rom_busy_o,
+         avm_write_o          => avm_write_o,
+         avm_read_o           => avm_read_o,
+         avm_address_o        => avm_address_o,
+         avm_writedata_o      => avm_writedata_o,
+         avm_byteenable_o     => avm_byteenable_o,
+         avm_burstcount_o     => avm_burstcount_o,
+         avm_readdata_i       => avm_readdata_i,
+         avm_readdatavalid_i  => avm_readdatavalid_i,
+         avm_waitrequest_i    => avm_waitrequest_i,
+         video_ce_o           => video_ce,
+         video_r_o            => video_red_o,
+         video_g_o            => video_green_o,
+         video_b_o            => video_blue_o,
+         video_hs_o           => video_hs_o,
+         video_vs_o           => video_vs_o,
+         video_hblank_o       => video_hblank_o,
+         video_vblank_o       => video_vblank_o,
+         audio_l_o            => audio_l,
+         audio_r_o            => audio_r,
+         -- Archimedes joystick bits: {fire, right, left, down, up}, low active
+         joy0_n_i             => joy_1_fire_n_i & joy_1_right_n_i & joy_1_left_n_i & joy_1_down_n_i & joy_1_up_n_i,
+         joy1_n_i             => joy_2_fire_n_i & joy_2_right_n_i & joy_2_left_n_i & joy_2_down_n_i & joy_2_up_n_i,
+         fdd_led_o            => fdd_led,
+         hdd_led_o            => hdd_led
+      ); -- i_archie
 
-         reset_i              => reset_soft_i or reset_hard_i,       -- long and short press of reset button mean the same
-         pause_i              => pause_i,
+   audio_left_o   <= signed(audio_l);
+   audio_right_o  <= signed(audio_r);
 
-         ball_col_rgb_i       => x"EE4020",                          -- ball color (RGB): orange
-         paddle_speed_i       => x"1",                               -- paddle speed is about 50 pixels / sec (due to 50 Hz)
+   video_ce_o     <= video_ce;
+   video_ce_ovl_o <= video_ce;
 
-         keyboard_n_i         => keyboard_n,                         -- move the paddle with the cursor left/right keys...
-         joy_up_n_i           => joy_1_up_n_i,                       -- ... or move the paddle with a joystick in port #1
-         joy_down_n_i         => joy_1_down_n_i,
-         joy_left_n_i         => joy_1_left_n_i,
-         joy_right_n_i        => joy_1_right_n_i,
-         joy_fire_n_i         => joy_1_fire_n_i,
+   drive_led_o    <= fdd_led or hdd_led;
 
-         vga_ce_o             => video_ce_o,
-         vga_red_o            => video_red_o,
-         vga_green_o          => video_green_o,
-         vga_blue_o           => video_blue_o,
-         vga_vs_o             => video_vs_o,
-         vga_hs_o             => video_hs_o,
-         vga_hblank_o         => video_hblank_o,
-         vga_vblank_o         => video_vblank_o,
-
-         audio_left_o         => audio_left_o,
-         audio_right_o        => audio_right_o
-      ); -- i_democore
-
-   -- On video_ce_o and video_ce_ovl_o: You have an important @TODO when porting a core:
-   -- video_ce_o: You need to make sure that video_ce_o divides clk_main_i such that it transforms clk_main_i
-   --             into the pixelclock of the core (means: the core's native output resolution pre-scandoubler)
-   -- video_ce_ovl_o: Clock enable for the OSM overlay and for sampling the core's (retro) output in a way that
-   --             it is displayed correctly on a "modern" analog input device: Make sure that video_ce_ovl_o
-   --             transforms clk_main_o into the post-scandoubler pixelclock that is valid for the target
-   --             resolution specified by VGA_DX/VGA_DY (globals.vhd)
-   -- video_retro15kHz_o: '1', if the output from the core (post-scandoubler) in the retro 15 kHz analog RGB mode.
-   --             Hint: Scandoubler off does not automatically mean retro 15 kHz on.
-   video_ce_ovl_o <= video_ce_o;
-
-   -- @TODO: Keyboard mapping and keyboard behavior
-   -- Each core is treating the keyboard in a different way: Some need low-active "matrices", some
-   -- might need small high-active keyboard memories, etc. This is why the MiSTer2MEGA65 framework
-   -- lets you define literally everything and only provides a minimal abstraction layer to the keyboard.
-   -- You need to adjust keyboard.vhd to your needs
-   i_keyboard : entity work.keyboard
-      port map (
-         clk_main_i           => clk_main_i,
-
-         -- Interface to the MEGA65 keyboard
-         key_num_i            => kb_key_num_i,
-         key_pressed_n_i      => kb_key_pressed_n_i,
-
-         -- @TODO: Create the kind of keyboard output that your core needs
-         -- "example_n_o" is a low active register and used by the demo core:
-         --    bit 0: Space
-         --    bit 1: Return
-         --    bit 2: Run/Stop
-         example_n_o          => keyboard_n
-      ); -- i_keyboard
+   -- Keyboard: the Archimedes keyboard controller comes in phase 3
 
 end architecture synthesis;
-

@@ -72,3 +72,23 @@ machines with less RAM behave.
 
 Later: if the scaler fits in 2 MB (input resolution up to 800x600, i.e. no mode 23 hi-res mono),
 the core window grows to 6 MB and we go to the full 4 MB of RAM.
+
+## Status
+
+- [x] Clocks (42 / 96 MHz) - builds on R3.
+- [x] Phase 1/2 wiring: `CORE/rtl/archie_main.v` replaces `Archie.sv`:
+  - Wishbone -> 32-bit Avalon bridge that mimics `sdram.v` (4-word wrap bursts on reads).
+  - HyperRAM path in `mega65.vhd`: `avm_fifo` (42 -> 100 MHz) + `avm_decrease` (32 -> 16 bit),
+    window `C_HMAP_ARCHIE` = 4 MB.
+  - RISC OS ROM: framework auto-loads `/archie/riscos.rom` into QNICE device `C_DEV_ARCHIE_ROM`;
+    bytes cross clock domains via `qnice2hyperram` + `avm_fifo` and are packed into 32-bit words.
+  - Intel RAMs replaced by `CORE/rtl/xilinx_rams.v`; CMOS defaults in `CORE/rtl/archie_cmos.mem`.
+  - Video: fixed 96 MHz with fractional pixel enables; h/v blank derived from DE.
+  - Simulation smoke test: `CORE/sim/run_tb.sh` (needs iverilog) - CPU runs code from ROM and
+    reads/writes RAM through the bridge.
+- [ ] Keyboard controller (phase 3) - keyboard input is tied off for now.
+- [ ] Floppy, CMOS save, RTC, hard disks.
+
+Known follow-ups:
+- `podule_ide.sv` loads `rtl/riscdevide_rom.hex` with a Quartus-relative path (IDE ROM; phase 6).
+- `fdc1772.sv` has `always begin` with no event list; fine in Quartus, check Vivado's view.
