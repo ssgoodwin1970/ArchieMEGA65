@@ -52,9 +52,9 @@ Everything else (Amber CPU, MEMC, IOC, VIDC, FDC 1772, IDE) is plain Verilog/Sys
 ## Design decisions
 
 ### Clocks (done: `CORE/vhdl/clk.vhd`)
-One MMCM, 100 MHz in, 1050 MHz VCO:
-- 42 MHz system clock (`CLKOUT1`, /25), exactly the MiSTer `CLKSYS`.
-- 96 MHz video clock (`CLKOUT0`, /10.9375).
+One MMCM, 100 MHz in, /5 then x42 = 840 MHz VCO:
+- 42 MHz system clock (`CLKOUT1`, /20), exactly the MiSTer `CLKSYS`.
+- 96 MHz video clock (`CLKOUT0`, /8.75; fractional dividers must be multiples of 0.125).
 
 The MiSTer core changes its video PLL per VIDC mode (24 / 25.175 / 36 MHz families, 96 MHz for mode 23).
 Instead we run one fixed 96 MHz video clock and make each pixel rate with fractional clock
