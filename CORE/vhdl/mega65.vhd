@@ -510,7 +510,7 @@ begin
       ); -- i_avm_decrease_archie
 
    -- HyperRAM address is in 16-bit words; C_HMAP_ARCHIE is in units of 4k words
-   hr_core_address_o <= std_logic_vector(unsigned(x"0" & C_HMAP_ARCHIE & x"000") + unsigned("00000000000" & hr_core_address16));
+   hr_core_address_o <= std_logic_vector(shift_left(resize(unsigned(C_HMAP_ARCHIE), 32), 12) + resize(unsigned(hr_core_address16), 32));
 
    ---------------------------------------------------------------------------------------------
    -- Audio and video settings (QNICE clock domain)
