@@ -371,17 +371,21 @@ always @(posedge clk_sys) begin
 end
 
 ///////////////////////////////////////////////////////////////////////////////
-// Wishbone -> Avalon bridge with a small read cache
+// Wishbone -> Avalon bridge with read cache and next-line prefetch
 //
 // Behaves towards the core like Archie_MiSTer sdram.v: every read returns up to
 // 4 words (wrap-around inside the aligned 16 byte block) on consecutive clocks
 // while the master holds STB.
 //
-// HyperRAM is much slower to answer than the MiSTer SDRAM, and video DMA reads
-// the screen as a continuous stream of 16 byte requests. To keep VIDC fed, reads
-// are served from a 4-line cache of 64 byte lines (16 words, one HyperRAM burst
-// per line). Writes go straight through to HyperRAM and also update a cached
-// line, so the cache is always coherent (this bridge is the only writer).
+// HyperRAM (shared with the M2M scaler) answers far slower than the MiSTer SDRAM.
+// Video DMA streams the screen in 16 byte requests and VIDC's FIFO only holds
+// 8 words, so a full HyperRAM round trip on the critical path makes the FIFO run
+// dry (flickering noise on screen). Therefore:
+//   - reads are served from an 8-line cache of 64 byte lines (one 16-word burst each)
+//   - every read of line L queues a background prefetch of line L+1, done while
+//     the bus is idle, so sequential streams (video, sound, code) hit the cache
+//   - writes go straight through to HyperRAM and drop a cached copy of the line
+//     (this bridge is the only writer, so the cache stays coherent)
 ///////////////////////////////////////////////////////////////////////////////
 
 // 2 MB RAM (addresses above alias) and 2 MB ROM (core address bit 22)
@@ -395,45 +399,61 @@ localparam ST_ACK   = 3'd3;
 localparam ST_ROM   = 3'd4;
 localparam ST_HIT   = 3'd5;
 
+localparam WAYS = 8;
+
 reg  [2:0] state = ST_IDLE;
 
-reg [31:0] cdata [0:63];           // {way[1:0], word[3:0]}
-reg [15:0] ctag  [0:3];
-reg  [3:0] cvalid = 4'b0000;
-reg  [1:0] victim = 2'd0;
+(* ram_style = "distributed" *)
+reg [31:0] cdata [0:WAYS*16-1];    // {way[2:0], word[3:0]}
+reg [15:0] ctag  [0:WAYS-1];
+reg [WAYS-1:0] cvalid = {WAYS{1'b0}};
+reg  [2:0] victim = 3'd0;
 
-reg  [1:0] cway;                   // way being read / filled
+reg  [2:0] cway;                   // way being read / filled
 reg  [3:0] cword;                  // next word to hand to the core
 reg  [3:0] fcnt;                   // words received during a fill
+reg        fill_pf;                // current fill is a prefetch (no core waiting)
 reg  [1:0] acks;                   // acks given in this cycle (wraps after 4)
 reg        wb_ack = 0;
 
+reg        pf_req = 1'b0;          // a prefetch is queued
+reg [15:0] pf_line;                // line to prefetch
+
 assign core_ack_in = wb_ack;
 
-// hit detection (combinational on the current request)
-wire [3:0] hit_vec;
+// hit detection for the core request and for the queued prefetch
+wire [WAYS-1:0] hit_vec, pf_vec;
 genvar gw;
-generate for (gw = 0; gw < 4; gw = gw + 1) begin : g_hit
+generate for (gw = 0; gw < WAYS; gw = gw + 1) begin : g_hit
    assign hit_vec[gw] = cvalid[gw] && (ctag[gw] == core_line);
+   assign pf_vec[gw]  = cvalid[gw] && (ctag[gw] == pf_line);
 end endgenerate
-wire       hit     = |hit_vec;
-wire [1:0] hit_way = hit_vec[3] ? 2'd3 : hit_vec[2] ? 2'd2 : hit_vec[1] ? 2'd1 : 2'd0;
+wire       hit    = |hit_vec;
+wire       pf_hit = |pf_vec || (state == ST_FILL && ctag[cway] == pf_line);
+reg  [2:0] hit_way;
+integer h;
+always @* begin
+   hit_way = 3'd0;
+   for (h = 0; h < WAYS; h = h + 1) if (hit_vec[h]) hit_way = h[2:0];
+end
 
-integer b;
+// cache data RAM: single write port (line fills), asynchronous read
+always @(posedge clk_sys)
+   if (state == ST_FILL && avm_readdatavalid_i)
+      cdata[{cway, fcnt}] <= avm_readdata_i;
+wire [31:0] cache_q = cdata[{cway, cword}];
+
 always @(posedge clk_sys) begin
    wb_ack   <= 1'b0;
    rom_done <= 1'b0;
 
-   // line fill from HyperRAM
-   if (state == ST_FILL && avm_readdatavalid_i) begin
-      cdata[{cway, fcnt}] <= avm_readdata_i;
-      fcnt                <= fcnt + 1'd1;
-   end
+   if (state == ST_FILL && avm_readdatavalid_i) fcnt <= fcnt + 1'd1;
 
    case (state)
       ST_IDLE: begin
          if (rom_pending & ~rom_done) begin
-            cvalid           <= 4'b0000;           // ROM download: drop the cache
+            cvalid           <= {WAYS{1'b0}};      // ROM download: drop the cache
+            pf_req           <= 1'b0;
             avm_write_o      <= 1'b1;
             avm_read_o       <= 1'b0;
             avm_address_o    <= {1'b1, rom_waddr};
@@ -443,29 +463,47 @@ always @(posedge clk_sys) begin
             state            <= ST_ROM;
          end else if (core_stb_out & core_cyc_out & ~core_reset) begin
             if (core_we_o) begin
-               // write through; keep a cached copy up to date
-               if (hit)
-                  for (b = 0; b < 4; b = b + 1)
-                     if (core_sel_o[b]) cdata[{hit_way, core_waddr[3:0]}][b*8 +: 8] <= core_data_out[b*8 +: 8];
+               if (hit) cvalid[hit_way] <= 1'b0;   // write through, drop the cached copy
+               if (pf_req && pf_line == core_line) pf_req <= 1'b0;
                avm_write_o      <= 1'b1;
                avm_address_o    <= core_waddr;
                avm_writedata_o  <= core_data_out;
                avm_byteenable_o <= core_sel_o;
                avm_burstcount_o <= 8'd1;
                state            <= ST_WRITE;
-            end else if (hit) begin
-               cway  <= hit_way;
-               cword <= core_waddr[3:0];
-               state <= ST_HIT;
             end else begin
+               // queue the next line for prefetching
+               pf_line <= core_line + 1'd1;
+               pf_req  <= 1'b1;
+               cword   <= core_waddr[3:0];
+               if (hit) begin
+                  cway  <= hit_way;
+                  state <= ST_HIT;
+               end else begin
+                  cway             <= victim;
+                  fcnt             <= 4'd0;
+                  fill_pf          <= 1'b0;
+                  cvalid[victim]   <= 1'b0;
+                  ctag[victim]     <= core_line;
+                  victim           <= victim + 1'd1;
+                  avm_read_o       <= 1'b1;
+                  avm_address_o    <= {core_line, 4'b0000};
+                  avm_byteenable_o <= 4'b1111;
+                  avm_burstcount_o <= 8'd16;
+                  state            <= ST_FILL;
+               end
+            end
+         end else if (pf_req & ~core_reset) begin
+            pf_req <= 1'b0;
+            if (~pf_hit) begin
                cway             <= victim;
-               cword            <= core_waddr[3:0];
                fcnt             <= 4'd0;
+               fill_pf          <= 1'b1;
                cvalid[victim]   <= 1'b0;
-               ctag[victim]     <= core_line;
+               ctag[victim]     <= pf_line;
                victim           <= victim + 1'd1;
                avm_read_o       <= 1'b1;
-               avm_address_o    <= {core_line, 4'b0000};
+               avm_address_o    <= {pf_line, 4'b0000};
                avm_byteenable_o <= 4'b1111;
                avm_burstcount_o <= 8'd16;
                state            <= ST_FILL;
@@ -490,13 +528,13 @@ always @(posedge clk_sys) begin
          if (~avm_waitrequest_i) avm_read_o <= 1'b0;
          if (avm_readdatavalid_i && fcnt == 4'd15) begin
             cvalid[cway] <= 1'b1;
-            state        <= ST_HIT;
+            state        <= fill_pf ? ST_IDLE : ST_HIT;
          end
       end
 
       // first word of a read (cache hit or line just filled)
       ST_HIT: begin
-         core_data_in <= cdata[{cway, cword}];
+         core_data_in <= cache_q;
          cword        <= {cword[3:2], cword[1:0] + 2'd1};
          wb_ack       <= 1'b1;
          acks         <= 2'd1;
@@ -506,7 +544,7 @@ always @(posedge clk_sys) begin
       // keep acking (up to 4 in total) while the master holds STB, as sdram.v does
       ST_ACK: begin
          if (core_stb_out & core_cyc_out & acks != 2'd0) begin
-            core_data_in <= cdata[{cway, cword}];
+            core_data_in <= cache_q;
             cword        <= {cword[3:2], cword[1:0] + 2'd1};
             wb_ack       <= 1'b1;
             acks         <= acks + 1'd1;

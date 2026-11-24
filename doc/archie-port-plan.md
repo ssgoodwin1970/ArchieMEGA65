@@ -102,3 +102,7 @@ RISC OS boots (mouse pointer drawn correctly), but the screen image is mostly no
 desktop faintly visible. Likely cause: HyperRAM round trips too slow for continuous video DMA.
 Fix: 4-line x 64-byte read cache in the bridge (write-through, coherent), one 16-word HyperRAM
 burst per line.
+Second test: no change, noise flickers fast every frame -> latency, not bandwidth: each new
+64-byte line was still a full HyperRAM round trip on the critical path while VIDC's FIFO only
+holds 8 words (~1.3 us of pixels in the desktop mode). Fix: 8-line cache, next-line prefetch on
+every read, writes invalidate (single-write-port LUTRAM).
