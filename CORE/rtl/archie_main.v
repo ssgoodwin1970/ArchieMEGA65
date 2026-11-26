@@ -425,7 +425,7 @@ wire [15:0] core_line  = core_waddr[19:4];
 // The first 512 KB of Archimedes RAM live in FPGA block RAM. VIDC's video,
 // cursor and sound DMA can only address this area (MEMC's DMA pointers are 19
 // bits), so the screen never waits for HyperRAM. 128K x 32 bit = 128 RAMB36.
-localparam LOWRAM_EN   = 0;                           // 0 = all RAM in HyperRAM (A/B test switch)
+localparam LOWRAM_EN   = 1;                           // 0 = all RAM in HyperRAM (A/B test switch)
 localparam LOWRAM_BITS = 17;                          // 2^17 words = 512 KB
 wire        core_low = LOWRAM_EN && (core_waddr[19:LOWRAM_BITS] == 0);
 
