@@ -141,6 +141,8 @@ wire  [3:0] core_r, core_g, core_b;
 wire        i2c_din, i2c_dout, i2c_clock;
 
 reg         ce_pix;
+wire  [7:0] kbd_out_data, kbd_in_data;
+wire        kbd_out_strobe, kbd_in_strobe;
 reg         ce_vid;
 reg         ce_aud;
 
@@ -212,16 +214,26 @@ archimedes_top #(42000000) ARCHIMEDES
    .ide_read          ( 1'b0                ),
    .ide_readdata      (                     ),
 
-   // Keyboard: not connected yet (phase 3)
-   .KBD_OUT_DATA      (                     ),
-   .KBD_OUT_STROBE    (                     ),
-   .KBD_IN_DATA       ( 8'd0                ),
-   .KBD_IN_STROBE     ( 1'b0                ),
+   // Keyboard controller (archie_kbd.v): reset handshake now, keys in phase 3
+   .KBD_OUT_DATA      ( kbd_out_data        ),
+   .KBD_OUT_STROBE    ( kbd_out_strobe      ),
+   .KBD_IN_DATA       ( kbd_in_data         ),
+   .KBD_IN_STROBE     ( kbd_in_strobe       ),
 
    .JOYSTICK0         ( joy0_n_i            ),
    .JOYSTICK1         ( joy1_n_i            ),
    .VIDBASECLK_O      ( pixbaseclk_select   ),
    .VIDSYNCPOL_O      (                     )
+);
+
+archie_kbd #(.CLK_HZ(42000000)) KEYBOARD
+(
+   .clk         ( clk_sys        ),
+   .reset       ( core_reset     ),
+   .host_data   ( kbd_out_data   ),
+   .host_strobe ( kbd_out_strobe ),
+   .kbd_data    ( kbd_in_data    ),
+   .kbd_strobe  ( kbd_in_strobe  )
 );
 
 ///////////////////////////////////////////////////////////////////////////////

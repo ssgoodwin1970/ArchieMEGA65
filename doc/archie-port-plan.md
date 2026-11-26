@@ -114,3 +114,8 @@ Fourth test: RISC OS 3 splash box drawn cleanly, desktop turns to noise -> total
 (screen DMA + CPU + M2M scaler all on HyperRAM). Fix: first 512 KB of Archimedes RAM (the only
 area VIDC DMA can address) moved into FPGA block RAM (128 x RAMB36). Also fixed a bridge bug:
 IDLE must ignore STB while an ack is still showing (as sdram.v's `~wb_ack` does).
+Fifth test (drive LED debug): red during load, briefly green, then yellow = CPU running from
+its cache with no bus activity. Most likely RISC OS waiting forever for the keyboard reset
+handshake (no keyboard was connected; the MiSTer HPS always answers). Added
+`CORE/rtl/archie_kbd.v`: answers HRST/RAK1/RAK2/RQID/RQMP/RQPD (IOC's KBD_OUT_STROBE is a level
+held during "transmit", so bytes are taken on its rising edge).
