@@ -122,6 +122,10 @@ component archie_main is
       audio_r_o            : out std_logic_vector(15 downto 0);
       joy0_n_i             : in  std_logic_vector(4 downto 0);
       joy1_n_i             : in  std_logic_vector(4 downto 0);
+      key_num_i            : in  std_logic_vector(6 downto 0);
+      key_pressed_n_i      : in  std_logic;
+      mouse_x_i            : in  std_logic_vector(7 downto 0);
+      mouse_y_i            : in  std_logic_vector(7 downto 0);
       fdd_led_o            : out std_logic;
       hdd_led_o            : out std_logic;
       dbg_rom_loaded_o     : out std_logic;
@@ -173,6 +177,10 @@ begin
          -- Archimedes joystick bits: {fire, right, left, down, up}, low active
          joy0_n_i             => joy_1_fire_n_i & joy_1_right_n_i & joy_1_left_n_i & joy_1_down_n_i & joy_1_up_n_i,
          joy1_n_i             => joy_2_fire_n_i & joy_2_right_n_i & joy_2_left_n_i & joy_2_down_n_i & joy_2_up_n_i,
+         key_num_i            => std_logic_vector(to_unsigned(kb_key_num_i, 7)),
+         key_pressed_n_i      => kb_key_pressed_n_i,
+         mouse_x_i            => pot1_x_i,
+         mouse_y_i            => pot1_y_i,
          fdd_led_o            => fdd_led,
          hdd_led_o            => hdd_led,
          dbg_rom_loaded_o     => dbg_rom,
@@ -198,6 +206,5 @@ begin
                       x"FFFF00" when dbg_act = '0' else
                       x"00FF00";
 
-   -- Keyboard: the Archimedes keyboard controller comes in phase 3
 
 end architecture synthesis;

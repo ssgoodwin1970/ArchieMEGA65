@@ -10,7 +10,7 @@ reg [31:0] prog [0:7];
 initial begin prog[0]=32'hE3A00402; prog[1]=32'hE5800000; prog[2]=32'hE5901000; prog[3]=32'hE2811001; prog[4]=32'hE5801000; prog[5]=32'hEAFFFFFB; end
 archie_main #(.ROM_QUIET_BITS(6)) dut(.clk_sys(clk_sys),.clk_vid(clk_vid),.reset_i(reset),.rom_loading_i(loading),.rom_wr_i(rom_wr),.rom_addr_i(rom_addr),.rom_data_i(rom_data),.rom_busy_o(rom_busy),
  .avm_write_o(wr),.avm_read_o(rd),.avm_address_o(addr),.avm_writedata_o(wdata),.avm_byteenable_o(be),.avm_burstcount_o(bc),.avm_readdata_i(rdata),.avm_readdatavalid_i(rvalid),.avm_waitrequest_i(wait_r),
- .joy0_n_i(5'h1f),.joy1_n_i(5'h1f));
+ .joy0_n_i(5'h1f),.joy1_n_i(5'h1f),.key_num_i(7'd127),.key_pressed_n_i(1'b1),.mouse_x_i(8'd0),.mouse_y_i(8'd0));
 // avalon slave with ~10 cycle latency, bursts
 integer pend=0, lat=0; reg [19:0] raddr; integer nwr=0, nrd=0;
 always @(posedge clk_sys) begin

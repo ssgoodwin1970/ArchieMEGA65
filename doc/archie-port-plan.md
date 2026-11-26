@@ -119,3 +119,26 @@ its cache with no bus activity. Most likely RISC OS waiting forever for the keyb
 handshake (no keyboard was connected; the MiSTer HPS always answers). Added
 `CORE/rtl/archie_kbd.v`: answers HRST/RAK1/RAK2/RQID/RQMP/RQPD (IOC's KBD_OUT_STROBE is a level
 held during "transmit", so bytes are taken on its rising edge).
+
+### Working: RISC OS desktop (block-RAM screen memory + keyboard handshake)
+Remaining: single garbled frames every few seconds (HDMI scaler starved of HyperRAM?) -> prefetch
+switched off (PREFETCH_EN=0), not needed now the screen is in block RAM.
+
+### Keyboard and mouse (archie_kbd.v)
+MEGA65 keys map to the Archimedes key of the same name. Special mappings:
+| MEGA65 | Archimedes |
+|---|---|
+| F1 F3 F5 F7 F9 F11 F13 | F1 F2 F3 F4 F5 F6 F7 |
+| RUN/STOP | F12 (RISC OS command line) |
+| RESTORE | Break |
+| INST/DEL | Backspace |
+| up arrow | Delete |
+| left arrow | ` ~ |
+| CLR/HOME | Home |
+| = | \ \| |
+| @ / * | [ / ] |
+| ; | ' |
+| MEGA | Adjust (right mouse button) |
+| HELP | M2M menu (not sent to the Archimedes) |
+
+Mouse: 1351-compatible mouse in port 1. Left = Select, right = Menu, MEGA key = Adjust.

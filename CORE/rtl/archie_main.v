@@ -67,6 +67,12 @@ module archie_main
    input       [4:0] joy0_n_i,
    input       [4:0] joy1_n_i,
 
+   // MEGA65 keyboard (M2M scanner) and 1351 mouse in port 1
+   input       [6:0] key_num_i,
+   input             key_pressed_n_i,
+   input       [7:0] mouse_x_i,
+   input       [7:0] mouse_y_i,
+
    output            fdd_led_o,
    output            hdd_led_o,
 
@@ -233,7 +239,13 @@ archie_kbd #(.CLK_HZ(42000000)) KEYBOARD
    .host_data   ( kbd_out_data   ),
    .host_strobe ( kbd_out_strobe ),
    .kbd_data    ( kbd_in_data    ),
-   .kbd_strobe  ( kbd_in_strobe  )
+   .kbd_strobe  ( kbd_in_strobe  ),
+   .key_num_i       ( key_num_i       ),
+   .key_pressed_n_i ( key_pressed_n_i ),
+   .mouse_x_i       ( mouse_x_i       ),
+   .mouse_y_i       ( mouse_y_i       ),
+   .mouse_left_n_i  ( joy0_n_i[4]     ),   // port 1 fire  = left button
+   .mouse_right_n_i ( joy0_n_i[0]     )    // port 1 up    = right button
 );
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -425,6 +437,7 @@ wire [15:0] core_line  = core_waddr[19:4];
 // The first 512 KB of Archimedes RAM live in FPGA block RAM. VIDC's video,
 // cursor and sound DMA can only address this area (MEMC's DMA pointers are 19
 // bits), so the screen never waits for HyperRAM. 128K x 32 bit = 128 RAMB36.
+localparam PREFETCH_EN = 0;                           // next-line prefetch (only needed when the screen was in HyperRAM)
 localparam LOWRAM_EN   = 1;                           // 0 = all RAM in HyperRAM (A/B test switch)
 localparam LOWRAM_BITS = 17;                          // 2^17 words = 512 KB
 wire        core_low = LOWRAM_EN && (core_waddr[19:LOWRAM_BITS] == 0);
@@ -543,7 +556,7 @@ always @(posedge clk_sys) begin
             end else begin
                // queue the next line for prefetching
                pf_line <= core_line + 1'd1;
-               pf_req  <= 1'b1;
+               pf_req  <= PREFETCH_EN;
                cword   <= core_waddr[3:0];
                if (hit) begin
                   cway  <= hit_way;
