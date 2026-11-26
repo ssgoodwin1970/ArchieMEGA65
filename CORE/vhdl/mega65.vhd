@@ -265,6 +265,7 @@ signal hr_avm_waitrequest     : std_logic;
 signal hr_core_address16      : std_logic_vector(20 downto 0);
 
 signal main_drive_led         : std_logic;
+signal main_drive_led_col     : std_logic_vector(23 downto 0);
 
 ---------------------------------------------------------------------------------------------
 -- main_clk (MiSTer core's clock)
@@ -437,7 +438,8 @@ begin
          avm_readdatavalid_i  => main_avm_readdatavalid,
          avm_waitrequest_i    => main_avm_waitrequest,
 
-         drive_led_o          => main_drive_led
+         drive_led_o          => main_drive_led,
+         drive_led_col_o      => main_drive_led_col
       ); -- i_main
 
    ---------------------------------------------------------------------------------------------
@@ -690,7 +692,7 @@ begin
    -- b) You might want to change the drive led's color (just like the C64 core does) as long as
    --    the cache is dirty (i.e. as long as the write process is not finished, yet)
    main_drive_led_o     <= main_drive_led;
-   main_drive_led_col_o <= x"00FF00";  -- 24-bit RGB value for the led
+   main_drive_led_col_o <= main_drive_led_col;
 
    i_vdrives : entity work.vdrives
       generic map (

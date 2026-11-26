@@ -84,7 +84,8 @@ entity main is
       avm_readdatavalid_i     : in  std_logic;
       avm_waitrequest_i       : in  std_logic;
 
-      drive_led_o             : out std_logic
+      drive_led_o             : out std_logic;
+      drive_led_col_o         : out std_logic_vector(23 downto 0)
    );
 end entity main;
 
@@ -122,7 +123,10 @@ component archie_main is
       joy0_n_i             : in  std_logic_vector(4 downto 0);
       joy1_n_i             : in  std_logic_vector(4 downto 0);
       fdd_led_o            : out std_logic;
-      hdd_led_o            : out std_logic
+      hdd_led_o            : out std_logic;
+      dbg_rom_loaded_o     : out std_logic;
+      dbg_running_o        : out std_logic;
+      dbg_active_o         : out std_logic
    );
 end component archie_main;
 
@@ -131,6 +135,9 @@ signal audio_r    : std_logic_vector(15 downto 0);
 signal video_ce   : std_logic;
 signal fdd_led    : std_logic;
 signal hdd_led    : std_logic;
+signal dbg_rom    : std_logic;
+signal dbg_run    : std_logic;
+signal dbg_act    : std_logic;
 
 begin
 
@@ -167,7 +174,10 @@ begin
          joy0_n_i             => joy_1_fire_n_i & joy_1_right_n_i & joy_1_left_n_i & joy_1_down_n_i & joy_1_up_n_i,
          joy1_n_i             => joy_2_fire_n_i & joy_2_right_n_i & joy_2_left_n_i & joy_2_down_n_i & joy_2_up_n_i,
          fdd_led_o            => fdd_led,
-         hdd_led_o            => hdd_led
+         hdd_led_o            => hdd_led,
+         dbg_rom_loaded_o     => dbg_rom,
+         dbg_running_o        => dbg_run,
+         dbg_active_o         => dbg_act
       ); -- i_archie
 
    audio_left_o   <= signed(audio_l);
@@ -176,7 +186,17 @@ begin
    video_ce_o     <= video_ce;
    video_ce_ovl_o <= video_ce;
 
-   drive_led_o    <= fdd_led or hdd_led;
+   -- Bring-up debug on the drive LED (temporary):
+   --    off    = no ROM byte has arrived from the SD card
+   --    red    = ROM arrived, Archimedes still held in reset
+   --    yellow = out of reset, but no memory activity (CPU stopped)
+   --    green  = running (memory bus busy)
+   --    blue   = floppy / hard disk activity
+   drive_led_o     <= dbg_rom or fdd_led or hdd_led;
+   drive_led_col_o <= x"0000FF" when (fdd_led or hdd_led) = '1' else
+                      x"FF0000" when dbg_run = '0' else
+                      x"FFFF00" when dbg_act = '0' else
+                      x"00FF00";
 
    -- Keyboard: the Archimedes keyboard controller comes in phase 3
 

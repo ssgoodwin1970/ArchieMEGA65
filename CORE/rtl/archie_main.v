@@ -68,7 +68,12 @@ module archie_main
    input       [4:0] joy1_n_i,
 
    output            fdd_led_o,
-   output            hdd_led_o
+   output            hdd_led_o,
+
+   // Debug status (clk_sys): shown on the MEGA65 drive LED
+   output            dbg_rom_loaded_o,   // at least one ROM byte arrived
+   output            dbg_running_o,      // core is out of reset
+   output reg        dbg_active_o        // CPU/DMA used the memory bus in the last ~0.2 s
 );
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -89,6 +94,19 @@ always @(posedge clk_sys) begin
 end
 
 wire core_reset = reset_i | rom_loading_i | ~rom_loaded | ~&rom_quiet;
+
+assign dbg_rom_loaded_o = rom_loaded;
+assign dbg_running_o    = ~core_reset;
+reg [22:0] dbg_cnt = 0;
+always @(posedge clk_sys) begin
+   if (core_stb_out & core_cyc_out & ~core_reset) begin
+      dbg_cnt      <= 0;
+      dbg_active_o <= 1'b1;
+   end else if (~&dbg_cnt)
+      dbg_cnt      <= dbg_cnt + 1'd1;
+   else
+      dbg_active_o <= 1'b0;
+end
 
 reg [1:0] video_reset_sync         = 2'b11;
 reg [1:0] video_command_reset_sync = 2'b11;
