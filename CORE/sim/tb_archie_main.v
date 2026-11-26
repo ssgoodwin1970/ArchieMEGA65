@@ -30,7 +30,7 @@ initial begin
   $display("ROM word0=%h word5=%h (expect E3A00402, EAFFFFFB)", mem[20'h80000], mem[20'h80005]);
   loading=0;
   repeat(6000) @(posedge clk_sys);
-  $display("reads=%0d writes=%0d RAM[0x400]=%h", nrd, nwr, mem[20'h00000]);
+  $display("HyperRAM reads=%0d writes=%0d  block RAM word0=%h (expect 020000xx, counting up)", nrd, nwr, dut.lowram[0]);
   $finish;
 end
 endmodule

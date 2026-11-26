@@ -110,3 +110,7 @@ Third test (video frames analysed): noise is made of desktop colours and changes
 VIDC FIFO underruns. Real cause: MEMC never interrupts a CPU access for DMA, and CPU cache
 misses to HyperRAM take >1 us, longer than the 8-word VIDC FIFO lasts. Fix: video DMA FIFO
 raised to 64 words (`vidc.v`, mega65 branch of the core).
+Fourth test: RISC OS 3 splash box drawn cleanly, desktop turns to noise -> total bandwidth
+(screen DMA + CPU + M2M scaler all on HyperRAM). Fix: first 512 KB of Archimedes RAM (the only
+area VIDC DMA can address) moved into FPGA block RAM (128 x RAMB36). Also fixed a bridge bug:
+IDLE must ignore STB while an ack is still showing (as sdram.v's `~wb_ack` does).

@@ -392,12 +392,34 @@ end
 wire [19:0] core_waddr = {core_address_out[22], core_address_out[20:2]};
 wire [15:0] core_line  = core_waddr[19:4];
 
+// The first 512 KB of Archimedes RAM live in FPGA block RAM. VIDC's video,
+// cursor and sound DMA can only address this area (MEMC's DMA pointers are 19
+// bits), so the screen never waits for HyperRAM. 128K x 32 bit = 128 RAMB36.
+localparam LOWRAM_BITS = 17;                          // 2^17 words = 512 KB
+wire        core_low = (core_waddr[19:LOWRAM_BITS] == 0);
+
+(* ram_style = "block" *)
+reg [31:0] lowram [0:(1<<LOWRAM_BITS)-1];
+reg [LOWRAM_BITS-1:0] low_addr;
+reg [31:0] low_wdata;
+reg  [3:0] low_we = 4'b0000;
+reg [31:0] low_q;
+
+integer lb;
+always @(posedge clk_sys) begin
+   for (lb = 0; lb < 4; lb = lb + 1)
+      if (low_we[lb]) lowram[low_addr][lb*8 +: 8] <= low_wdata[lb*8 +: 8];
+   low_q <= lowram[low_addr];
+end
+
 localparam ST_IDLE  = 3'd0;
 localparam ST_WRITE = 3'd1;
 localparam ST_FILL  = 3'd2;
 localparam ST_ACK   = 3'd3;
 localparam ST_ROM   = 3'd4;
 localparam ST_HIT   = 3'd5;
+localparam ST_LOW   = 3'd6;          // block RAM read: words arrive one clock after their address
+localparam ST_LOWW  = 3'd7;          // block RAM write: ack one clock later
 
 localparam WAYS = 8;
 
@@ -443,9 +465,13 @@ always @(posedge clk_sys)
       cdata[{cway, fcnt}] <= avm_readdata_i;
 wire [31:0] cache_q = cdata[{cway, cword}];
 
+reg [1:0] low_word;                // word index inside the 16 byte block (wraps)
+reg       low_first;
+
 always @(posedge clk_sys) begin
    wb_ack   <= 1'b0;
    rom_done <= 1'b0;
+   low_we   <= 4'b0000;
 
    if (state == ST_FILL && avm_readdatavalid_i) fcnt <= fcnt + 1'd1;
 
@@ -461,7 +487,19 @@ always @(posedge clk_sys) begin
             avm_byteenable_o <= 4'b1111;
             avm_burstcount_o <= 8'd1;
             state            <= ST_ROM;
-         end else if (core_stb_out & core_cyc_out & ~core_reset) begin
+         end else if (core_stb_out & core_cyc_out & ~wb_ack & ~core_reset & core_low) begin
+            // first 512 KB: block RAM, never HyperRAM
+            low_addr <= core_waddr[LOWRAM_BITS-1:0];
+            if (core_we_o) begin
+               low_wdata <= core_data_out;
+               low_we    <= core_sel_o;
+               state     <= ST_LOWW;
+            end else begin
+               low_word  <= core_waddr[1:0];
+               low_first <= 1'b1;
+               state     <= ST_LOW;
+            end
+         end else if (core_stb_out & core_cyc_out & ~wb_ack & ~core_reset) begin
             if (core_we_o) begin
                if (hit) cvalid[hit_way] <= 1'b0;   // write through, drop the cached copy
                if (pf_req && pf_line == core_line) pf_req <= 1'b0;
@@ -495,7 +533,7 @@ always @(posedge clk_sys) begin
             end
          end else if (pf_req & ~core_reset) begin
             pf_req <= 1'b0;
-            if (~pf_hit) begin
+            if (~pf_hit && pf_line[15:LOWRAM_BITS-4] != 0) begin
                cway             <= victim;
                fcnt             <= 4'd0;
                fill_pf          <= 1'b1;
@@ -550,6 +588,32 @@ always @(posedge clk_sys) begin
             acks         <= acks + 1'd1;
          end else
             state        <= ST_IDLE;
+      end
+
+      ST_LOWW: begin
+         wb_ack <= 1'b1;
+         acks   <= 2'd1;
+         state  <= ST_ACK;
+      end
+
+      // block RAM reads: hand out up to 4 words (wrapping inside the 16 byte
+      // block) on consecutive clocks while the master holds STB, like sdram.v
+      ST_LOW: begin
+         if (low_first) begin
+            // address of word 0 was presented in IDLE; present word 1 now
+            low_first <= 1'b0;
+            low_addr  <= {low_addr[LOWRAM_BITS-1:2], low_word + 2'd1};
+            low_word  <= low_word + 2'd1;
+            acks      <= 2'd0;
+         end else if (acks == 2'd0 || (core_stb_out & core_cyc_out)) begin
+            core_data_in <= low_q;
+            wb_ack       <= 1'b1;
+            low_addr     <= {low_addr[LOWRAM_BITS-1:2], low_word + 2'd1};
+            low_word     <= low_word + 2'd1;
+            acks         <= acks + 1'd1;
+            if (acks == 2'd3) state <= ST_IDLE;
+         end else
+            state <= ST_IDLE;
       end
 
       default: state <= ST_IDLE;
