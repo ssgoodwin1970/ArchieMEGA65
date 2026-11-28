@@ -138,10 +138,11 @@ MEGA65 keys map to the Archimedes key of the same name. Special mappings:
 | = | \ \| |
 | @ / * | [ / ] |
 | ; | ' |
-| MEGA | Adjust (right mouse button) |
+| MEGA | Menu (middle mouse button, for 2-button mice) |
 | HELP | M2M menu (not sent to the Archimedes) |
 
-Mouse: 1351-compatible mouse in port 1. Left = Select, right = Menu, MEGA key = Adjust.
+Mouse: 1351-compatible mouse in port 1 (mouSTer: `mode=mouse`, `type=c1351`).
+Left = Select, middle = Menu, right = Adjust (like a real Acorn mouse). MEGA key = Menu.
 
 ### HDMI glitches (dropped line pieces near icons/pointer)
 HDMI 4:3 50 Hz test: glitches mostly gone -> the M2M scaler is short of HyperRAM bandwidth at

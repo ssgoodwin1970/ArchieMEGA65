@@ -22,8 +22,10 @@
 //
 // MEGA65 input:
 //   - key_num_i/key_pressed_n_i: the M2M scanner (all 80 keys, 1000x per second)
-//   - 1351 mouse in port 1: pot X/Y bits [6:1] count position, fire = left
-//     button (Select), up = right button (Menu). MEGA key = Adjust.
+//   - 1351 mouse in port 1 (e.g. mouSTer with type=c1351): pot X/Y bits [6:1]
+//     count position. Buttons like a real Acorn mouse:
+//       fire = left = Select, down = middle = Menu, up = right = Adjust.
+//     MEGA key = Menu as well, for 2-button mice.
 //
 // Bytes to the host are sent ~320 us apart (a real keyboard at 31.25 kbaud).
 
@@ -47,8 +49,9 @@ module archie_kbd
 
    input      [7:0] mouse_x_i,      // 1351: pot X
    input      [7:0] mouse_y_i,      // 1351: pot Y
-   input            mouse_left_n_i, // fire
-   input            mouse_right_n_i // up
+   input            mouse_left_n_i,  // fire
+   input            mouse_middle_n_i,// down
+   input            mouse_right_n_i  // up
 );
 
 localparam DELAY = CLK_HZ / 3125;   // ~320 us between bytes
@@ -120,7 +123,7 @@ function [7:0] arc_code(input [6:0] k);
       7'd58: arc_code = 8'h3B;  // CTRL
       7'd59: arc_code = 8'h12;  // 2
       7'd60: arc_code = 8'h5F;  // SPACE
-      7'd61: arc_code = 8'h72;  // MEGA       -> Adjust (right mouse button)
+      7'd61: arc_code = 8'h71;  // MEGA       -> Menu (middle mouse button)
       7'd62: arc_code = 8'h27;  // Q
       7'd63: arc_code = 8'h0C;  // RUN/STOP   -> F12 (command line)
       7'd64: arc_code = 8'h0E;  // NO SCROLL  -> Scroll Lock
@@ -153,7 +156,7 @@ wire [7:0]  key_code  = arc_code(key_num_i);
 reg         evq_pop;
 
 // mouse buttons are reported like keys
-reg         ml_rep = 0, mr_rep = 0;
+reg         ml_rep = 0, mm_rep = 0, mr_rep = 0;
 
 always @(posedge clk) begin
    if (reset) begin
@@ -161,6 +164,7 @@ always @(posedge clk) begin
       evq_wr   <= 0;
       evq_rd   <= 0;
       ml_rep   <= 0;
+      mm_rep   <= 0;
       mr_rep   <= 0;
    end else begin
       if (evq_pop) evq_rd <= evq_rd + 1'd1;
@@ -173,8 +177,12 @@ always @(posedge clk) begin
          evq[evq_wr] <= {mouse_left_n_i, 8'h70};        // Select
          evq_wr      <= evq_wr + 1'd1;
          ml_rep      <= ~mouse_left_n_i;
+      end else if (!evq_full && ~mouse_middle_n_i != mm_rep) begin
+         evq[evq_wr] <= {mouse_middle_n_i, 8'h71};      // Menu
+         evq_wr      <= evq_wr + 1'd1;
+         mm_rep      <= ~mouse_middle_n_i;
       end else if (!evq_full && ~mouse_right_n_i != mr_rep) begin
-         evq[evq_wr] <= {mouse_right_n_i, 8'h71};       // Menu
+         evq[evq_wr] <= {mouse_right_n_i, 8'h72};       // Adjust
          evq_wr      <= evq_wr + 1'd1;
          mr_rep      <= ~mouse_right_n_i;
       end

@@ -244,8 +244,9 @@ archie_kbd #(.CLK_HZ(42000000)) KEYBOARD
    .key_pressed_n_i ( key_pressed_n_i ),
    .mouse_x_i       ( mouse_x_i       ),
    .mouse_y_i       ( mouse_y_i       ),
-   .mouse_left_n_i  ( joy0_n_i[4]     ),   // port 1 fire  = left button
-   .mouse_right_n_i ( joy0_n_i[0]     )    // port 1 up    = right button
+   .mouse_left_n_i   ( joy0_n_i[4]    ),   // port 1 fire = left button   (Select)
+   .mouse_middle_n_i ( joy0_n_i[1]    ),   // port 1 down = middle button (Menu)
+   .mouse_right_n_i  ( joy0_n_i[0]    )    // port 1 up   = right button  (Adjust)
 );
 
 ///////////////////////////////////////////////////////////////////////////////
