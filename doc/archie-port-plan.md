@@ -142,3 +142,9 @@ MEGA65 keys map to the Archimedes key of the same name. Special mappings:
 | HELP | M2M menu (not sent to the Archimedes) |
 
 Mouse: 1351-compatible mouse in port 1. Left = Select, right = Menu, MEGA key = Adjust.
+
+### HDMI glitches (dropped line pieces near icons/pointer)
+HDMI 4:3 50 Hz test: glitches mostly gone -> the M2M scaler is short of HyperRAM bandwidth at
+720p. Fix: 128 KB direct-mapped block-RAM cache (2048 x 64-byte lines, index XOR-folded with
+the tag) for RAM above 512 KB and the ROM; small LUT cache and prefetch removed. Cursor VIDC
+FIFO doubled to 8 words. Test 2 in `CORE/sim/run_tb.sh` exercises the HyperRAM/cache path.

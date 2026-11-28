@@ -413,31 +413,28 @@ always @(posedge clk_sys) begin
 end
 
 ///////////////////////////////////////////////////////////////////////////////
-// Wishbone -> Avalon bridge with read cache and next-line prefetch
+// Wishbone -> Avalon bridge
 //
 // Behaves towards the core like Archie_MiSTer sdram.v: every read returns up to
 // 4 words (wrap-around inside the aligned 16 byte block) on consecutive clocks
-// while the master holds STB.
+// while the master holds STB; IDLE ignores STB while an ack is still showing.
 //
-// HyperRAM (shared with the M2M scaler) answers far slower than the MiSTer SDRAM.
-// Video DMA streams the screen in 16 byte requests and VIDC's FIFO only holds
-// 8 words, so a full HyperRAM round trip on the critical path makes the FIFO run
-// dry (flickering noise on screen). Therefore:
-//   - reads are served from an 8-line cache of 64 byte lines (one 16-word burst each)
-//   - every read of line L queues a background prefetch of line L+1, done while
-//     the bus is idle, so sequential streams (video, sound, code) hit the cache
-//   - writes go straight through to HyperRAM and drop a cached copy of the line
-//     (this bridge is the only writer, so the cache stays coherent)
+// Memory map (32-bit word address, 1M words = 4 MB):
+//   RAM 0..512 KB  : FPGA block RAM "lowram" (all VIDC DMA lives here)
+//   RAM 512 KB..2 MB, ROM 2..4 MB : HyperRAM, behind a 128 KB block-RAM cache
+//
+// The HyperRAM is shared with the M2M HDMI scaler, which needs most of its
+// bandwidth at 720p. The cache keeps the Archimedes off the HyperRAM as much as
+// possible: direct mapped, 2048 lines x 64 bytes, one 16-word burst per miss.
+// Writes go through to HyperRAM and update a cached copy (this bridge is the
+// only writer, so the cache is always coherent).
 ///////////////////////////////////////////////////////////////////////////////
 
 // 2 MB RAM (addresses above alias) and 2 MB ROM (core address bit 22)
 wire [19:0] core_waddr = {core_address_out[22], core_address_out[20:2]};
 wire [15:0] core_line  = core_waddr[19:4];
 
-// The first 512 KB of Archimedes RAM live in FPGA block RAM. VIDC's video,
-// cursor and sound DMA can only address this area (MEMC's DMA pointers are 19
-// bits), so the screen never waits for HyperRAM. 128K x 32 bit = 128 RAMB36.
-localparam PREFETCH_EN = 0;                           // next-line prefetch (only needed when the screen was in HyperRAM)
+// --- first 512 KB of RAM: block RAM ---------------------------------------
 localparam LOWRAM_EN   = 1;                           // 0 = all RAM in HyperRAM (A/B test switch)
 localparam LOWRAM_BITS = 17;                          // 2^17 words = 512 KB
 wire        core_low = LOWRAM_EN && (core_waddr[19:LOWRAM_BITS] == 0);
@@ -456,80 +453,89 @@ always @(posedge clk_sys) begin
    low_q <= lowram[low_addr];
 end
 
-localparam ST_IDLE  = 3'd0;
-localparam ST_WRITE = 3'd1;
-localparam ST_FILL  = 3'd2;
-localparam ST_ACK   = 3'd3;
-localparam ST_ROM   = 3'd4;
-localparam ST_HIT   = 3'd5;
-localparam ST_LOW   = 3'd6;          // block RAM read: words arrive one clock after their address
-localparam ST_LOWW  = 3'd7;          // block RAM write: ack one clock later
+// --- 128 KB direct-mapped cache in front of HyperRAM -----------------------
+localparam IDX_BITS = 11;                             // 2048 lines x 16 words
+localparam TAG_BITS = 16 - IDX_BITS;
 
-localparam WAYS = 8;
-
-reg  [2:0] state = ST_IDLE;
+// index = low line bits XOR the tag (shifted up), so ROM and RAM lines 128 KB
+// apart (very common: code in ROM, data in RAM) do not keep evicting each other
+function [IDX_BITS-1:0] line_idx(input [15:0] l);
+   line_idx = l[IDX_BITS-1:0] ^ {l[15:IDX_BITS], {(2*IDX_BITS-16){1'b0}}};
+endfunction
+wire [IDX_BITS-1:0] core_idx = line_idx(core_line);
+wire [TAG_BITS-1:0] core_tag = core_line[15:IDX_BITS];
 
 (* ram_style = "distributed" *)
-reg [31:0] cdata [0:WAYS*16-1];    // {way[2:0], word[3:0]}
-reg [15:0] ctag  [0:WAYS-1];
-reg [WAYS-1:0] cvalid = {WAYS{1'b0}};
-reg  [2:0] victim = 3'd0;
+reg [TAG_BITS:0] ctags [0:(1<<IDX_BITS)-1];          // {valid, tag}
+integer ti;
+initial for (ti = 0; ti < (1<<IDX_BITS); ti = ti + 1) ctags[ti] = 0;
 
-reg  [2:0] cway;                   // way being read / filled
-reg  [3:0] cword;                  // next word to hand to the core
-reg  [3:0] fcnt;                   // words received during a fill
-reg        fill_pf;                // current fill is a prefetch (no core waiting)
-reg  [1:0] acks;                   // acks given in this cycle (wraps after 4)
-reg        wb_ack = 0;
+wire [TAG_BITS:0] core_tagent = ctags[core_idx];
+wire              hit = core_tagent[TAG_BITS] && (core_tagent[TAG_BITS-1:0] == core_tag);
 
-reg        pf_req = 1'b0;          // a prefetch is queued
-reg [15:0] pf_line;                // line to prefetch
+wire [15:0]         rom_line = {1'b1, rom_waddr[18:4]};
+wire [IDX_BITS-1:0] rom_idx  = line_idx(rom_line);
+wire [TAG_BITS:0]   rom_tagent = ctags[rom_idx];
+wire                rom_hit = rom_tagent[TAG_BITS] && (rom_tagent[TAG_BITS-1:0] == rom_line[15:IDX_BITS]);
 
-assign core_ack_in = wb_ack;
+(* ram_style = "block" *)
+reg [31:0] cmem [0:(1<<(IDX_BITS+4))-1];
+reg [IDX_BITS+3:0] c_addr;
+reg [31:0] c_wdata;
+reg  [3:0] c_we = 4'b0000;
+reg [31:0] c_q;
 
-// hit detection for the core request and for the queued prefetch
-wire [WAYS-1:0] hit_vec, pf_vec;
-genvar gw;
-generate for (gw = 0; gw < WAYS; gw = gw + 1) begin : g_hit
-   assign hit_vec[gw] = cvalid[gw] && (ctag[gw] == core_line);
-   assign pf_vec[gw]  = cvalid[gw] && (ctag[gw] == pf_line);
-end endgenerate
-wire       hit    = |hit_vec;
-wire       pf_hit = |pf_vec || (state == ST_FILL && ctag[cway] == pf_line);
-reg  [2:0] hit_way;
-integer h;
-always @* begin
-   hit_way = 3'd0;
-   for (h = 0; h < WAYS; h = h + 1) if (hit_vec[h]) hit_way = h[2:0];
+integer cb;
+always @(posedge clk_sys) begin
+   for (cb = 0; cb < 4; cb = cb + 1)
+      if (c_we[cb]) cmem[c_addr][cb*8 +: 8] <= c_wdata[cb*8 +: 8];
+   c_q <= cmem[c_addr];
 end
 
-// cache data RAM: single write port (line fills), asynchronous read
-always @(posedge clk_sys)
-   if (state == ST_FILL && avm_readdatavalid_i)
-      cdata[{cway, fcnt}] <= avm_readdata_i;
-wire [31:0] cache_q = cdata[{cway, cword}];
+// --- state machine -----------------------------------------------------------
+localparam ST_IDLE  = 4'd0;
+localparam ST_WRITE = 4'd1;   // HyperRAM write, then ack
+localparam ST_FILL  = 4'd2;   // line fill from HyperRAM
+localparam ST_FILL2 = 4'd3;   // last fill word written; present first read address
+localparam ST_ACK   = 4'd4;   // extra acks after a write (as sdram.v)
+localparam ST_ROM   = 4'd5;   // ROM loader write
+localparam ST_LOW   = 4'd6;   // block RAM read (lowram)
+localparam ST_LOWW  = 4'd7;   // block RAM write (lowram)
+localparam ST_CRD   = 4'd8;   // cache read
 
-reg [1:0] low_word;                // word index inside the 16 byte block (wraps)
-reg       low_first;
+reg  [3:0] state = ST_IDLE;
+
+reg [IDX_BITS-1:0] cur_idx;
+reg [TAG_BITS-1:0] cur_tag;
+reg  [3:0] fcnt;              // words received during a fill
+reg  [1:0] acks;              // acks given in this cycle (wraps after 4)
+reg        wb_ack = 0;
+reg  [1:0] rd_word;           // word index inside the 16 byte block (wraps)
+reg  [1:0] rd_blk;            // 16 byte block inside the 64 byte line
+reg        rd_first;
+
+assign core_ack_in = wb_ack;
 
 always @(posedge clk_sys) begin
    wb_ack   <= 1'b0;
    rom_done <= 1'b0;
    low_we   <= 4'b0000;
-
-   if (state == ST_FILL && avm_readdatavalid_i) fcnt <= fcnt + 1'd1;
+   c_we     <= 4'b0000;
 
    case (state)
       ST_IDLE: begin
          if (rom_pending & ~rom_done) begin
-            cvalid           <= {WAYS{1'b0}};      // ROM download: drop the cache
-            pf_req           <= 1'b0;
             avm_write_o      <= 1'b1;
             avm_read_o       <= 1'b0;
             avm_address_o    <= {1'b1, rom_waddr};
             avm_writedata_o  <= rom_word;
             avm_byteenable_o <= 4'b1111;
             avm_burstcount_o <= 8'd1;
+            if (rom_hit) begin                       // keep a cached copy up to date
+               c_addr  <= {rom_idx, rom_waddr[3:0]};
+               c_wdata <= rom_word;
+               c_we    <= 4'b1111;
+            end
             state            <= ST_ROM;
          end else if (core_stb_out & core_cyc_out & ~wb_ack & ~core_reset & core_low) begin
             // first 512 KB: block RAM, never HyperRAM
@@ -539,53 +545,37 @@ always @(posedge clk_sys) begin
                low_we    <= core_sel_o;
                state     <= ST_LOWW;
             end else begin
-               low_word  <= core_waddr[1:0];
-               low_first <= 1'b1;
-               state     <= ST_LOW;
+               rd_word  <= core_waddr[1:0];
+               rd_first <= 1'b1;
+               state    <= ST_LOW;
             end
          end else if (core_stb_out & core_cyc_out & ~wb_ack & ~core_reset) begin
+            rd_word <= core_waddr[1:0];
+            rd_blk  <= core_waddr[3:2];
+            cur_idx <= core_idx;
+            cur_tag <= core_tag;
             if (core_we_o) begin
-               if (hit) cvalid[hit_way] <= 1'b0;   // write through, drop the cached copy
-               if (pf_req && pf_line == core_line) pf_req <= 1'b0;
+               // write through to HyperRAM; update the cached copy
+               if (hit) begin
+                  c_addr  <= {core_idx, core_waddr[3:0]};
+                  c_wdata <= core_data_out;
+                  c_we    <= core_sel_o;
+               end
                avm_write_o      <= 1'b1;
                avm_address_o    <= core_waddr;
                avm_writedata_o  <= core_data_out;
                avm_byteenable_o <= core_sel_o;
                avm_burstcount_o <= 8'd1;
                state            <= ST_WRITE;
+            end else if (hit) begin
+               c_addr   <= {core_idx, core_waddr[3:0]};
+               rd_first <= 1'b1;
+               state    <= ST_CRD;
             end else begin
-               // queue the next line for prefetching
-               pf_line <= core_line + 1'd1;
-               pf_req  <= PREFETCH_EN;
-               cword   <= core_waddr[3:0];
-               if (hit) begin
-                  cway  <= hit_way;
-                  state <= ST_HIT;
-               end else begin
-                  cway             <= victim;
-                  fcnt             <= 4'd0;
-                  fill_pf          <= 1'b0;
-                  cvalid[victim]   <= 1'b0;
-                  ctag[victim]     <= core_line;
-                  victim           <= victim + 1'd1;
-                  avm_read_o       <= 1'b1;
-                  avm_address_o    <= {core_line, 4'b0000};
-                  avm_byteenable_o <= 4'b1111;
-                  avm_burstcount_o <= 8'd16;
-                  state            <= ST_FILL;
-               end
-            end
-         end else if (pf_req & ~core_reset) begin
-            pf_req <= 1'b0;
-            if (~pf_hit && (!LOWRAM_EN || pf_line[15:LOWRAM_BITS-4] != 0)) begin
-               cway             <= victim;
+               ctags[core_idx]  <= 0;                // invalid until the fill completes
                fcnt             <= 4'd0;
-               fill_pf          <= 1'b1;
-               cvalid[victim]   <= 1'b0;
-               ctag[victim]     <= pf_line;
-               victim           <= victim + 1'd1;
                avm_read_o       <= 1'b1;
-               avm_address_o    <= {pf_line, 4'b0000};
+               avm_address_o    <= {core_line, 4'b0000};
                avm_byteenable_o <= 4'b1111;
                avm_burstcount_o <= 8'd16;
                state            <= ST_FILL;
@@ -608,30 +598,32 @@ always @(posedge clk_sys) begin
 
       ST_FILL: begin
          if (~avm_waitrequest_i) avm_read_o <= 1'b0;
-         if (avm_readdatavalid_i && fcnt == 4'd15) begin
-            cvalid[cway] <= 1'b1;
-            state        <= fill_pf ? ST_IDLE : ST_HIT;
+         if (avm_readdatavalid_i) begin
+            c_addr  <= {cur_idx, fcnt};
+            c_wdata <= avm_readdata_i;
+            c_we    <= 4'b1111;
+            fcnt    <= fcnt + 1'd1;
+            if (fcnt == 4'd15) begin
+               ctags[cur_idx] <= {1'b1, cur_tag};
+               state          <= ST_FILL2;
+            end
          end
       end
 
-      // first word of a read (cache hit or line just filled)
-      ST_HIT: begin
-         core_data_in <= cache_q;
-         cword        <= {cword[3:2], cword[1:0] + 2'd1};
-         wb_ack       <= 1'b1;
-         acks         <= 2'd1;
-         state        <= ST_ACK;
+      ST_FILL2: begin
+         // the last word is written at this clock edge; then read like a hit
+         c_addr   <= {cur_idx, rd_blk, rd_word};
+         rd_first <= 1'b1;
+         state    <= ST_CRD;
       end
 
       // keep acking (up to 4 in total) while the master holds STB, as sdram.v does
       ST_ACK: begin
          if (core_stb_out & core_cyc_out & acks != 2'd0) begin
-            core_data_in <= cache_q;
-            cword        <= {cword[3:2], cword[1:0] + 2'd1};
-            wb_ack       <= 1'b1;
-            acks         <= acks + 1'd1;
+            wb_ack <= 1'b1;
+            acks   <= acks + 1'd1;
          end else
-            state        <= ST_IDLE;
+            state  <= ST_IDLE;
       end
 
       ST_LOWW: begin
@@ -640,20 +632,22 @@ always @(posedge clk_sys) begin
          state  <= ST_ACK;
       end
 
-      // block RAM reads: hand out up to 4 words (wrapping inside the 16 byte
-      // block) on consecutive clocks while the master holds STB, like sdram.v
-      ST_LOW: begin
-         if (low_first) begin
-            // address of word 0 was presented in IDLE; present word 1 now
-            low_first <= 1'b0;
-            low_addr  <= {low_addr[LOWRAM_BITS-1:2], low_word + 2'd1};
-            low_word  <= low_word + 2'd1;
-            acks      <= 2'd0;
+      // block RAM reads (lowram or cache): hand out up to 4 words, wrapping
+      // inside the 16 byte block, on consecutive clocks while STB is held.
+      // The address of word 0 was presented one state earlier.
+      ST_LOW, ST_CRD: begin
+         if (rd_first) begin
+            rd_first <= 1'b0;
+            if (state == ST_LOW) low_addr <= {low_addr[LOWRAM_BITS-1:2], rd_word + 2'd1};
+            else                 c_addr   <= {c_addr[IDX_BITS+3:2],      rd_word + 2'd1};
+            rd_word  <= rd_word + 2'd1;
+            acks     <= 2'd0;
          end else if (acks == 2'd0 || (core_stb_out & core_cyc_out)) begin
-            core_data_in <= low_q;
+            core_data_in <= (state == ST_LOW) ? low_q : c_q;
             wb_ack       <= 1'b1;
-            low_addr     <= {low_addr[LOWRAM_BITS-1:2], low_word + 2'd1};
-            low_word     <= low_word + 2'd1;
+            if (state == ST_LOW) low_addr <= {low_addr[LOWRAM_BITS-1:2], rd_word + 2'd1};
+            else                 c_addr   <= {c_addr[IDX_BITS+3:2],      rd_word + 2'd1};
+            rd_word      <= rd_word + 2'd1;
             acks         <= acks + 1'd1;
             if (acks == 2'd3) state <= ST_IDLE;
          end else
