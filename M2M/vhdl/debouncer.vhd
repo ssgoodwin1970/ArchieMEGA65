@@ -94,19 +94,19 @@ begin
    -- 1ms for the fire button
         
    do_dbnce_joy1_up : entity work.debounce
-      generic map(initial => '1', clk_freq => CLK_FREQ, stable_time => 1)
+      generic map(initial => '1', clk_freq => CLK_FREQ/50, stable_time => 1)   -- ArchieMEGA65: 20 us (Amiga mouse quadrature)
       port map (clk => clk, reset_n => reset_n, button => joy_1_up_n, result => j1_u);
 
    do_dbnce_joy1_down : entity work.debounce
-      generic map(initial => '1', clk_freq => CLK_FREQ, stable_time => 1)
+      generic map(initial => '1', clk_freq => CLK_FREQ/50, stable_time => 1)   -- ArchieMEGA65: 20 us (Amiga mouse quadrature)
       port map (clk => clk, reset_n => reset_n, button => joy_1_down_n, result => j1_d);
 
    do_dbnce_joy1_left : entity work.debounce
-      generic map(initial => '1', clk_freq => CLK_FREQ, stable_time => 1)
+      generic map(initial => '1', clk_freq => CLK_FREQ/50, stable_time => 1)   -- ArchieMEGA65: 20 us (Amiga mouse quadrature)
       port map (clk => clk, reset_n => reset_n, button => joy_1_left_n, result => j1_l);
 
    do_dbnce_joy1_right : entity work.debounce
-      generic map(initial => '1', clk_freq => CLK_FREQ, stable_time => 1)
+      generic map(initial => '1', clk_freq => CLK_FREQ/50, stable_time => 1)   -- ArchieMEGA65: 20 us (Amiga mouse quadrature)
       port map (clk => clk, reset_n => reset_n, button => joy_1_right_n, result => j1_r);
 
    do_dbnce_joy1_fire : entity work.debounce

@@ -246,7 +246,9 @@ archie_kbd #(.CLK_HZ(42000000)) KEYBOARD
    .mouse_y_i       ( mouse_y_i       ),
    .mouse_left_n_i   ( joy0_n_i[4]    ),   // port 1 fire = left button   (Select)
    .mouse_middle_n_i ( joy0_n_i[1]    ),   // port 1 down = middle button (Menu)
-   .mouse_right_n_i  ( joy0_n_i[0]    )    // port 1 up   = right button  (Adjust)
+   .mouse_right_n_i  ( joy0_n_i[0]    ),   // port 1 up   = right button  (Adjust)
+   .joy_left_n_i     ( joy0_n_i[2]    ),   // Amiga mouse VQ
+   .joy_right_n_i    ( joy0_n_i[3]    )    // Amiga mouse HQ
 );
 
 ///////////////////////////////////////////////////////////////////////////////

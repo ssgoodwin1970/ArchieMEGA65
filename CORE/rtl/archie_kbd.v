@@ -26,6 +26,12 @@
 //     count position. Buttons like a real Acorn mouse:
 //       fire = left = Select, down = middle = Menu, up = right = Adjust.
 //     MEGA key = Menu as well, for 2-button mice.
+//   - Amiga mouse in port 1 (e.g. mouSTer default type=amiga), detected
+//     automatically the first time the left/right lines toggle (a 1351 never
+//     uses them). Quadrature: H = down, HQ = right (X); V = up, VQ = left (Y).
+//     Left button = fire = Select. Right/middle buttons arrive on the pot
+//     lines (POTX/POTY): treated as pressed when the pot reading moves far
+//     from its idle value. M2M debounces port 1 directions for 20 us only.
 //
 // Bytes to the host are sent ~320 us apart (a real keyboard at 31.25 kbaud).
 
@@ -51,7 +57,9 @@ module archie_kbd
    input      [7:0] mouse_y_i,      // 1351: pot Y
    input            mouse_left_n_i,  // fire
    input            mouse_middle_n_i,// down
-   input            mouse_right_n_i  // up
+   input            mouse_right_n_i, // up
+   input            joy_left_n_i,    // port 1 left  (Amiga VQ)
+   input            joy_right_n_i    // port 1 right (Amiga HQ)
 );
 
 localparam DELAY = CLK_HZ / 3125;   // ~320 us between bytes
@@ -142,6 +150,98 @@ function [7:0] arc_code(input [6:0] k);
 endfunction
 
 ///////////////////////////////////////////////////////////////////////////////
+// Mouse movement: 1351 (pot lines) or Amiga (quadrature on the direction lines)
+///////////////////////////////////////////////////////////////////////////////
+
+reg  [5:0] mx_old = 0, my_old = 0;
+reg signed [9:0] mx_acc = 0, my_acc = 0;
+wire signed [5:0] mx_d = $signed(mouse_x_i[6:1] - mx_old);
+wire signed [5:0] my_d = $signed(mouse_y_i[6:1] - my_old);
+reg [15:0] mdiv = 0;
+reg        mouse_take;              // mouse packet sent: clear what was reported
+reg signed [6:0] m_dx, m_dy;        // values being sent
+
+// Amiga detection and quadrature decoding
+reg        amiga = 1'b0;
+reg  [1:0] lr_old = 2'b11;
+reg  [1:0] qx_old = 2'b11, qy_old = 2'b11;      // {H, HQ}, {V, VQ}
+wire [1:0] qx = {mouse_middle_n_i, joy_right_n_i}; // down = H,  right = HQ
+wire [1:0] qy = {mouse_right_n_i,  joy_left_n_i};  // up   = V,  left  = VQ
+
+// one quadrature step: +1 / -1 / 0 (no change or invalid double change)
+function signed [1:0] qstep(input [1:0] o, input [1:0] n);
+   case ({o, n})
+      4'b00_01, 4'b01_11, 4'b11_10, 4'b10_00: qstep =  2'sd1;
+      4'b00_10, 4'b10_11, 4'b11_01, 4'b01_00: qstep = -2'sd1;
+      default:                                qstep =  2'sd0;
+   endcase
+endfunction
+wire signed [1:0] qdx = qstep(qx_old, qx);
+wire signed [1:0] qdy = qstep(qy_old, qy);
+
+function signed [6:0] clamp7(input signed [9:0] v);
+   clamp7 = (v > 63) ? 7'sd63 : (v < -64) ? -7'sd64 : v[6:0];
+endfunction
+
+always @(posedge clk) begin
+   mdiv   <= mdiv + 1'd1;
+   lr_old <= {joy_left_n_i, joy_right_n_i};
+   qx_old <= qx;
+   qy_old <= qy;
+   if (reset) begin
+      mx_acc <= 0; my_acc <= 0;
+      mx_old <= mouse_x_i[6:1]; my_old <= mouse_y_i[6:1];
+   end else begin
+      // a 1351 never toggles left/right: if they toggle, it is an Amiga mouse
+      if (lr_old != {joy_left_n_i, joy_right_n_i}) amiga <= 1'b1;
+
+      if (amiga) begin
+         // Amiga: every quadrature edge is one count (Y: up is positive on the Archimedes)
+         mx_acc <= mx_acc + qdx - (mouse_take ? m_dx : 7'sd0);
+         my_acc <= my_acc - qdy - (mouse_take ? m_dy : 7'sd0);
+      end else if (mdiv == 0) begin
+         // 1351: sample the pots about every 1.5 ms; ignore jumps (noise / no mouse)
+         if (mx_d > -6'sd16 && mx_d < 6'sd16) mx_acc <= mx_acc + mx_d - (mouse_take ? m_dx : 7'sd0);
+         else                                  mx_acc <= mx_acc - (mouse_take ? m_dx : 7'sd0);
+         if (my_d > -6'sd16 && my_d < 6'sd16) my_acc <= my_acc + my_d - (mouse_take ? m_dy : 7'sd0);
+         else                                  my_acc <= my_acc - (mouse_take ? m_dy : 7'sd0);
+         mx_old <= mouse_x_i[6:1];
+         my_old <= mouse_y_i[6:1];
+      end else if (mouse_take) begin
+         mx_acc <= mx_acc - m_dx;
+         my_acc <= my_acc - m_dy;
+      end
+   end
+end
+
+// Amiga right/middle buttons on the pot lines: pressed = reading far from idle
+reg  [7:0] potx_idle = 8'h00, poty_idle = 8'h00;
+reg        pot_learned = 1'b0;
+reg [21:0] pot_wait = 0;
+function [7:0] absdiff(input [7:0] a, input [7:0] b);
+   absdiff = (a > b) ? a - b : b - a;
+endfunction
+always @(posedge clk) begin
+   if (reset) begin
+      pot_learned <= 1'b0;
+      pot_wait    <= 0;
+   end else if (!pot_learned) begin
+      pot_wait <= pot_wait + 1'd1;
+      if (&pot_wait) begin                       // ~0.1 s after reset: learn idle readings
+         potx_idle   <= mouse_x_i;
+         poty_idle   <= mouse_y_i;
+         pot_learned <= 1'b1;
+      end
+   end
+end
+wire amiga_right  = amiga && pot_learned && (absdiff(mouse_x_i, potx_idle) > 8'd64);
+wire amiga_middle = amiga && pot_learned && (absdiff(mouse_y_i, poty_idle) > 8'd64);
+
+// buttons as seen by the Archimedes (low active)
+wire btn_menu_n   = amiga ? ~amiga_middle : mouse_middle_n_i;
+wire btn_adjust_n = amiga ? ~amiga_right  : mouse_right_n_i;
+
+///////////////////////////////////////////////////////////////////////////////
 // Key events: compare the scanner with the last state we reported
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -177,51 +277,14 @@ always @(posedge clk) begin
          evq[evq_wr] <= {mouse_left_n_i, 8'h70};        // Select
          evq_wr      <= evq_wr + 1'd1;
          ml_rep      <= ~mouse_left_n_i;
-      end else if (!evq_full && ~mouse_middle_n_i != mm_rep) begin
-         evq[evq_wr] <= {mouse_middle_n_i, 8'h71};      // Menu
+      end else if (!evq_full && ~btn_menu_n != mm_rep) begin
+         evq[evq_wr] <= {btn_menu_n, 8'h71};            // Menu
          evq_wr      <= evq_wr + 1'd1;
-         mm_rep      <= ~mouse_middle_n_i;
-      end else if (!evq_full && ~mouse_right_n_i != mr_rep) begin
-         evq[evq_wr] <= {mouse_right_n_i, 8'h72};       // Adjust
+         mm_rep      <= ~btn_menu_n;
+      end else if (!evq_full && ~btn_adjust_n != mr_rep) begin
+         evq[evq_wr] <= {btn_adjust_n, 8'h72};          // Adjust
          evq_wr      <= evq_wr + 1'd1;
-         mr_rep      <= ~mouse_right_n_i;
-      end
-   end
-end
-
-///////////////////////////////////////////////////////////////////////////////
-// 1351 mouse movement: accumulate deltas of pot bits [6:1]
-///////////////////////////////////////////////////////////////////////////////
-
-reg  [5:0] mx_old = 0, my_old = 0;
-reg signed [9:0] mx_acc = 0, my_acc = 0;
-wire signed [5:0] mx_d = $signed(mouse_x_i[6:1] - mx_old);
-wire signed [5:0] my_d = $signed(mouse_y_i[6:1] - my_old);
-reg [15:0] mdiv = 0;
-reg        mouse_take;              // mouse packet sent: clear what was reported
-reg signed [6:0] m_dx, m_dy;        // values being sent
-
-function signed [6:0] clamp7(input signed [9:0] v);
-   clamp7 = (v > 63) ? 7'sd63 : (v < -64) ? -7'sd64 : v[6:0];
-endfunction
-
-always @(posedge clk) begin
-   mdiv <= mdiv + 1'd1;
-   if (reset) begin
-      mx_acc <= 0; my_acc <= 0;
-      mx_old <= mouse_x_i[6:1]; my_old <= mouse_y_i[6:1];
-   end else begin
-      // sample the pots about every 1.5 ms; ignore jumps (noise / no mouse)
-      if (mdiv == 0) begin
-         if (mx_d > -6'sd16 && mx_d < 6'sd16) mx_acc <= mx_acc + mx_d - (mouse_take ? m_dx : 7'sd0);
-         else                                  mx_acc <= mx_acc - (mouse_take ? m_dx : 7'sd0);
-         if (my_d > -6'sd16 && my_d < 6'sd16) my_acc <= my_acc + my_d - (mouse_take ? m_dy : 7'sd0);
-         else                                  my_acc <= my_acc - (mouse_take ? m_dy : 7'sd0);
-         mx_old <= mouse_x_i[6:1];
-         my_old <= mouse_y_i[6:1];
-      end else if (mouse_take) begin
-         mx_acc <= mx_acc - m_dx;
-         my_acc <= my_acc - m_dy;
+         mr_rep      <= ~btn_adjust_n;
       end
    end
 end

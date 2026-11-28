@@ -3,11 +3,11 @@
 module tb;
 reg clk=0; always #11.9 clk=~clk;
 reg rst=1, st=0; reg [7:0] d=0; wire [7:0] kd; wire ks;
-reg [6:0] knum=0; reg kpress_a=0; reg [7:0] mx=8'd100, my=8'd100; reg ml=1, mr=1;
+reg [6:0] knum=0; reg kpress_a=0; reg [7:0] mx=8'd100, my=8'd100; reg ml=1, mr=1; reg qh=1, qhq=1;
 // emulate the M2M scanner: cycle through 80 keys, key 10 (A) pressed when kpress_a
 always @(posedge clk) knum <= (knum==79) ? 0 : knum+1;
 archie_kbd #(.CLK_HZ(42000000)) u(.clk(clk),.reset(rst),.host_data(d),.host_strobe(st),.kbd_data(kd),.kbd_strobe(ks),
-  .key_num_i(knum),.key_pressed_n_i(!(kpress_a && knum==10)),.mouse_x_i(mx),.mouse_y_i(my),.mouse_left_n_i(ml),.mouse_middle_n_i(1'b1),.mouse_right_n_i(mr));
+  .key_num_i(knum),.key_pressed_n_i(!(kpress_a && knum==10)),.mouse_x_i(mx),.mouse_y_i(my),.mouse_left_n_i(ml),.mouse_middle_n_i(qh),.mouse_right_n_i(mr),.joy_left_n_i(1'b1),.joy_right_n_i(qhq));
 reg [7:0] last; reg got=0;
 always @(posedge clk) if (ks) begin $display("  keyboard -> host %h", kd); last=kd; got=1; end
 task send(input [7:0] b); begin $display("host -> keyboard %h", b); d=b; st=1; repeat(500) @(posedge clk); st=0; end endtask
@@ -22,6 +22,14 @@ initial begin repeat(10) @(posedge clk); rst=0;
   waitbyte; send(8'h3F); waitbyte; send(8'h33);
   $display("-- move mouse right by 5 counts (expect 05, 00)"); mx = mx + 10;
   waitbyte; send(8'h3F); waitbyte; send(8'h33);
-  repeat(200000) @(posedge clk);
+  $display("-- Amiga mouse: 8 quadrature steps on H/HQ (expect +08 or -08 on X, 00 on Y)");
+  got=0;
+  repeat(2) begin
+    qhq=0; repeat(2000) @(posedge clk); qh=0; repeat(2000) @(posedge clk);
+    qhq=1; repeat(2000) @(posedge clk); qh=1; repeat(2000) @(posedge clk);
+  end
+  while(!got) @(posedge clk); repeat(100) @(posedge clk); send(8'h3F); waitbyte; send(8'h33);
+  repeat(30000) @(posedge clk);
+  if (u.amiga) $display("Amiga mouse detected"); else $display("ERROR: Amiga mouse not detected");
   $display("done"); $finish; end
 endmodule

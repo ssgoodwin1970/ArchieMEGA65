@@ -149,3 +149,8 @@ HDMI 4:3 50 Hz test: glitches mostly gone -> the M2M scaler is short of HyperRAM
 720p. Fix: 128 KB direct-mapped block-RAM cache (2048 x 64-byte lines, index XOR-folded with
 the tag) for RAM above 512 KB and the ROM; small LUT cache and prefetch removed. Cursor VIDC
 FIFO doubled to 8 words. Test 2 in `CORE/sim/run_tb.sh` exercises the HyperRAM/cache path.
+
+Amiga mouse (mouSTer default mode) is now supported too, detected automatically: quadrature on
+the port-1 direction lines (M2M debouncer for port-1 directions shortened from 1 ms to 20 us in
+`M2M/vhdl/debouncer.vhd`). Right/middle buttons come from the pot lines (pressed = reading far
+from its idle value); left = fire. If Amiga right/middle don't work, MEGA key = Menu.
